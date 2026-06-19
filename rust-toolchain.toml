@@ -1,0 +1,4 @@
+# MK-40: Rust sürümü sabit (kararlı kanal) — tüm geliştiriciler/CI aynı sürümü kullanır
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

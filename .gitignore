@@ -1,0 +1,57 @@
+# Rust / Cargo
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Editör — VS Code
+.vscode/
+*.code-workspace
+
+# Editör — JetBrains
+.idea/
+*.iml
+
+# OS — Windows
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# OS — macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# OS — Linux
+*~
+
+# Gizli anahtarlar / ortam dosyaları (asla repoya girmesin — MK-44/MK-60)
+.env
+.env.*
+secrets.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Derleme çıktıları
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Log dosyaları
+*.log
+logs/
+
+# Test çıktıları / golden farklar (büyük dosyalar için)
+test_output/
+
+# BioCraft proje dosyaları (örnek / geçici)
+*.bcproj
+*.bcext
+!assets/**/*.bcext
+
+# Node (yardımcı araçlar için)
+node_modules/
+dist/
