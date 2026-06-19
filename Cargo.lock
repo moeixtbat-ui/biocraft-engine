@@ -18,6 +18,93 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "biocraft-ai-surface"
+version = "0.1.0"
+dependencies = [
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-app"
+version = "0.1.0"
+
+[[package]]
+name = "biocraft-data"
+version = "0.1.0"
+dependencies = [
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-ipc"
+version = "0.1.0"
+dependencies = [
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-launcher"
+version = "0.1.0"
+dependencies = [
+ "biocraft-render",
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-mem"
+version = "0.1.0"
+dependencies = [
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-net"
+version = "0.1.0"
+dependencies = [
+ "biocraft-ipc",
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "biocraft-ipc",
+ "biocraft-mem",
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-render"
+version = "0.1.0"
+dependencies = [
+ "biocraft-mem",
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-sdk"
+version = "0.1.0"
+dependencies = [
+ "biocraft-types",
+]
+
+[[package]]
+name = "biocraft-state"
+version = "0.1.0"
+dependencies = [
+ "biocraft-sdk",
+ "biocraft-types",
+]
+
+[[package]]
 name = "biocraft-types"
 version = "0.1.0"
 dependencies = [
@@ -25,6 +112,16 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "biocraft-ui"
+version = "0.1.0"
+dependencies = [
+ "biocraft-render",
+ "biocraft-sdk",
+ "biocraft-state",
+ "biocraft-types",
 ]
 
 [[package]]

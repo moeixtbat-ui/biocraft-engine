@@ -1,0 +1,10 @@
+[package]
+name        = "biocraft-state"
+version.workspace = true
+edition.workspace = true
+description = "BioCraft Engine — L2: Uygulama state, otomatik kayıt, undo/redo (MK-36, MK-38, MK-40)"
+
+# MK-40: L2 — yalnızca L0/L1 katmanlarına bağlı; üst katmanlara bağlantı yasak.
+[dependencies]
+biocraft-types = { path = "../biocraft-types" }
+biocraft-sdk   = { path = "../biocraft-sdk" }

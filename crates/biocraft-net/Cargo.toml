@@ -1,0 +1,11 @@
+[package]
+name        = "biocraft-net"
+version.workspace = true
+edition.workspace = true
+description = "BioCraft Engine — L3: Iroh P2P arayüzü (yalnız kanca — MK-50, MK-40)"
+
+# MK-40: L3 — yalnızca L0/L1/L2 katmanlarına bağlı; üst katmanlara bağlantı yasak.
+[dependencies]
+biocraft-types = { path = "../biocraft-types" }
+biocraft-sdk   = { path = "../biocraft-sdk" }
+biocraft-ipc   = { path = "../biocraft-ipc" }

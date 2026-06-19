@@ -1,0 +1,10 @@
+[package]
+name        = "biocraft-ai-surface"
+version.workspace = true
+edition.workspace = true
+description = "BioCraft Engine — L3: AI yüzey/iskelet (MVP'de yalnızca yüzeysel — MK-46, MK-48, MK-49, MK-40)"
+
+# MK-40: L3 — yalnızca L0/L1/L2 katmanlarına bağlı; üst katmanlara bağlantı yasak.
+[dependencies]
+biocraft-types = { path = "../biocraft-types" }
+biocraft-sdk   = { path = "../biocraft-sdk" }

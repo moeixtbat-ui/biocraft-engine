@@ -2,11 +2,29 @@
 [workspace]
 resolver = "2"
 members = [
+    # L0 — temel tipler (hiçbir workspace crate'ine bağlı değil)
     "crates/biocraft-types",
+    # L1 — SDK + IPC
+    "crates/biocraft-sdk",
+    "crates/biocraft-ipc",
+    # L2 — veri / state / bellek
+    "crates/biocraft-data",
+    "crates/biocraft-state",
+    "crates/biocraft-mem",
+    # L3 — render / eklenti host / ağ / AI yüzey
+    "crates/biocraft-render",
+    "crates/biocraft-plugin-host",
+    "crates/biocraft-net",
+    "crates/biocraft-ai-surface",
+    # L4 — UI kabuk + launcher
+    "crates/biocraft-ui",
+    "crates/biocraft-launcher",
+    # L5 — ana binary
+    "crates/biocraft-app",
 ]
 
 [workspace.package]
-version = "0.1.0"
-edition = "2021"
+version   = "0.1.0"
+edition   = "2021"
 authors   = ["BioCraft Engine Developers"]
 license   = "AGPL-3.0-or-later"

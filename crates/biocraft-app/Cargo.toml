@@ -1,0 +1,13 @@
+[package]
+name        = "biocraft-app"
+version.workspace = true
+edition.workspace = true
+description = "BioCraft Engine — L5: Ana binary; tüm katmanları birleştirir (MK-40)"
+
+[[bin]]
+name = "biocraft"
+path = "src/main.rs"
+
+# MK-40: L5 — tüm alt katmanlara (L0..L4) bağlanabilir; stub aşamasında bağımlılık yok.
+# Gerçek bağımlılıklar İP-03 (kabuk) ve İP-04 (render) ile eklenecek.
+[dependencies]

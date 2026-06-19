@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev", "feature/**"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain kurulumu
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      # --- Derleme ---
+      - name: cargo build --workspace
+        run: cargo build --workspace --locked
+
+      # --- Testler ---
+      - name: cargo test --workspace
+        run: cargo test --workspace --locked
+
+      # --- Format ---
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      # --- Lint ---
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # --- Güvenlik denetimi ---
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --quiet
+          cargo audit
+
+      # --- Kullanılmayan bağımlılık ---
+      - name: cargo machete (kullanılmayan bağımlılık)
+        run: |
+          cargo install cargo-machete --quiet
+          cargo machete
+
+      # --- Katman topolojisi (MK-40) ---
+      - name: Topology check (katman yönü doğrulaması)
+        run: python3 scripts/check-topology.py

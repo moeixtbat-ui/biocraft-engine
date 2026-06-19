@@ -13,9 +13,9 @@
 - **Marka:** BioCraft Engine · biocraftengine.com
 - **Aktif sürüm hedefi:** MVP — tam kullanılabilir ilk sürüm (motor + çekirdek eklenti BioCraft Studio + AI yüzeyi)
 - **Kapsam:** Temel uygulama İP-00…İP-21 + Çekirdek eklenti ÇE-00…ÇE-12 + AI yüzey (İP-14 / YZ-00,01,06,08)
-- **Son tamamlanan gün:** Gün 1 — İP-00 (kısmi): Cargo workspace + biocraft-types L0 (2026-06-20)
-- **Sıradaki gün:** Gün 2 — İP-00 devamı: iskelet crate'ler (tüm L1-L5 boş stubs) + CI + boş pencere
-- **Derleme durumu:** ✅ `cargo build --workspace` + 18 test geçiyor; clippy/fmt temiz
+- **Son tamamlanan gün:** Gün 2 — İP-00 (tam): 13 crate workspace iskeleti + topoloji kontrol + CI (2026-06-20)
+- **Sıradaki gün:** Gün 3 — İP-16: TDA hata şeması (`biocraft-types` içine `BioCraftError`, standart hata yapısı, `correlation_id`)
+- **Derleme durumu:** ✅ `cargo build --workspace` (13 crate) + 18 test geçiyor; fmt/clippy/machete/topology temiz
 - **Bilinen bloke eden sorunlar:** yok
 
 ---
@@ -36,6 +36,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 2026-06-20 | Pre-Sprint | Git init + GitHub remote bağlama + iskelet dosyalar (.gitignore, rust-toolchain.toml, README.md) + anayasa (ARCHITECTURE/CLAUDE/PROGRESS) + 5 spec dosyası yerleştirildi | ✅ | — | Gün 1: İP-00 Cargo Workspace |
 | 1 | 2026-06-20 | Faz 1 / İP-00 | Cargo workspace (resolver=2) + biocraft-types L0 crate: ProjectId, PluginId, Version(SemVer), DataClassification(MK-42), Capability(MK-13), JobStatus, Blake3Hash, Timestamp — Türkçe döküman yorumları + 18 birim testi | ✅ | 18/18 geçti | Gün 2: İP-16 (TDA hata şeması) veya diğer İP-00 parçası (iskelet crate'ler + CI) |
+| 2 | 2026-06-20 | Faz 1 / İP-00 | 12 stub crate iskelet (L1–L5): biocraft-sdk/ipc/data/state/mem/render/plugin-host/net/ai-surface/ui/launcher/app — kök Cargo.toml 13 üye, hepsini derliyor; cargo-machete (0 kullanılmayan dep); MK-40 topoloji kontrol scripti (scripts/check-topology.py, Python+cargo metadata); .github/workflows/ci.yml (build/test/fmt/clippy/audit/machete/topology); fmt+clippy temiz | ✅ | 18/18 geçti (stubs sıfır test, types geçiyor) | Gün 3: İP-16 (TDA hata şeması — `biocraft-types` içine hata enum'ları + standart hata yapısı) |
 
 > Durum sembolleri: ✅ Tamam · ⚠️ Yarım/TODO var · ❌ Bloke · ⏳ Henüz başlanmadı
 

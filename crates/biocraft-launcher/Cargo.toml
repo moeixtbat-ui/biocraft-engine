@@ -1,0 +1,11 @@
+[package]
+name        = "biocraft-launcher"
+version.workspace = true
+edition.workspace = true
+description = "BioCraft Engine — L4: Açılış istemcisi (son projeler, haber akışı, donanım ön-kontrol — İP-01, MK-40)"
+
+# MK-40: L4 — yalnızca L0/L1/L2/L3 katmanlarına bağlı; üst katmanlara bağlantı yasak.
+[dependencies]
+biocraft-types  = { path = "../biocraft-types" }
+biocraft-sdk    = { path = "../biocraft-sdk" }
+biocraft-render = { path = "../biocraft-render" }
