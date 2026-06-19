@@ -1,0 +1,6 @@
+# clippy.toml — BioCraft Engine Clippy lint yapılandırması
+# CI'da: cargo clippy --workspace --all-targets -- -D warnings
+# MK-58: Uyarı = hata; temiz derleme zorunlu.
+
+# Minimum desteklenen Rust sürümü (rust-toolchain.toml: stable kanalı)
+msrv = "1.80.0"

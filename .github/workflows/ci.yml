@@ -11,48 +11,76 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  build-and-test:
-    name: Build & Test
-    runs-on: ubuntu-latest
+  # ─── Ana CI: Derleme / Test / Format / Lint / Audit ──────────────────────────
+  # MK-58: Her push/PR'da otomatik kalite kapısı
+  # MK-60: Bağımlılık güvenlik denetimi
+  ci:
+    name: CI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false          # Bir OS başarısız olsa bile diğeri tamamlanır
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rust toolchain kurulumu
+      # Topoloji scripti için Python 3 (her iki OS'ta tutarlı)
+      - name: Python 3 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Rust araç zinciri (stable + rustfmt + clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Cargo cache
+      # Bağımlılık + derleme çıktısı önbelleği
+      - name: Cargo önbellek
         uses: Swatinem/rust-cache@v2
 
-      # --- Derleme ---
+      # --- 1. Derleme ---
       - name: cargo build --workspace
         run: cargo build --workspace --locked
 
-      # --- Testler ---
+      # --- 2. Testler ---
       - name: cargo test --workspace
         run: cargo test --workspace --locked
 
-      # --- Format ---
+      # --- 3. Format kontrolü (rustfmt.toml kuralları) ---
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
-      # --- Lint ---
+      # --- 4. Lint (clippy.toml kuralları, -D warnings = uyarı = hata) ---
       - name: cargo clippy -D warnings
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # --- Güvenlik denetimi ---
-      - name: cargo audit
+      # --- 5. Güvenlik açığı denetimi — MK-60 ---
+      - name: cargo audit kur ve çalıştır
         run: |
-          cargo install cargo-audit --quiet
+          cargo install cargo-audit --quiet --locked
           cargo audit
 
-      # --- Kullanılmayan bağımlılık ---
-      - name: cargo machete (kullanılmayan bağımlılık)
+      # --- 6. Kullanılmayan bağımlılık tespiti ---
+      - name: cargo machete kur ve çalıştır
         run: |
-          cargo install cargo-machete --quiet
+          cargo install cargo-machete --quiet --locked
           cargo machete
 
-      # --- Katman topolojisi (MK-40) ---
-      - name: Topology check (katman yönü doğrulaması)
-        run: python3 scripts/check-topology.py
+      # --- 7. Katman topolojisi (MK-40: L0→L5 yönü, döngüsel bağımlılık yasak) ---
+      - name: Katman topoloji kontrolü
+        run: python scripts/check-topology.py
+
+  # ─── cargo-deny: Lisans Politikası + Advisory Denetimi ───────────────────────
+  # deny.toml → Hukuk-ve-Operasyon.md §1 (AGPLv3 çekirdekle uyumsuz lisanslar reddedilir)
+  # MK-60: Bağımlılık güvenliği
+  deny:
+    name: Lisans & Bağımlılık Denetimi (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          log-level: warn
+          command: check

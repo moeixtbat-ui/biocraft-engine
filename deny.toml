@@ -1,0 +1,68 @@
+# deny.toml — BioCraft Engine bağımlılık politikası
+# Referans: docs/specs/Hukuk-ve-Operasyon.md Bölüm 1 (Lisans Stratejisi)
+# MK-60: Tüm bağımlılıklar bu politikaya uymak zorunda
+#
+# Çalıştırma: cargo deny check
+# CI'da:      EmbarkStudios/cargo-deny-action@v2
+
+# Hedef platform grafı (CI'da hangi üçlüler kontrol edilir)
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-pc-windows-msvc" },
+]
+
+# ─── Güvenlik açıkları (RustSec Advisory DB) ─────────────────────────────────
+# Kural: Bilinen CVE/güvenlik açığı içeren bağımlılık → CI hemen kırmızı
+# Yeni ignore girdisi eklemek = bilerek kabul etmek; PR açıklamasında gerekçe yaz
+[advisories]
+version = 2
+ignore = []
+
+# ─── Lisans politikası ───────────────────────────────────────────────────────
+# Hukuk-ve-Operasyon.md §1: Çekirdek AGPLv3 + SDK Apache-2.0.
+# AGPLv3 ile UYUMSUZ veya lisans bilgisi BELIRSIZ bağımlılıklar → reddedilir.
+# Aşağıdaki liste, biyoinformatik Rust ekosisteminin yaygın açık-kaynak lisanslarıdır;
+# yeni bir bağımlılık farklı lisans içeriyorsa burayı güncelle + avukata danış.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "AGPL-3.0-or-later",
+    "MPL-2.0",
+    "BSL-1.0",
+    "OpenSSL",
+]
+# Lisans bilgisi hiç olmayan crate → reddedilir
+unlicensed = "deny"
+# GPL/LGPL ailesi bağımlılıklarda AGPL uyumunu elle doğrula → uyarı ver
+copyleft = "warn"
+# "OSI onaylıdır" veya "FSF özgür yazılım" genel etiketine dayanılmaz;
+# açık liste yukarıdaki allow bloğudur
+allow-osi-fsf-free = "neither"
+
+# ─── Yasaklı / tekrarlanan crate'ler ─────────────────────────────────────────
+[bans]
+# Aynı crate'in iki farklı sürümü → uyarı (bağımlılık çakışmasına işaret eder)
+multiple-versions = "warn"
+# Cargo.toml'da * sürüm joker karakteri → reddet (tekrar üretilebilirlik kural MK-60)
+wildcards = "deny"
+deny  = []
+skip  = []
+skip-tree = []
+
+# ─── Kaynak doğrulama ────────────────────────────────────────────────────────
+# Yalnızca crates.io'dan; bilinmeyen git/registry kaynakları reddedilir
+[sources]
+unknown-registry = "deny"
+unknown-git      = "warn"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]
+allow-git        = []

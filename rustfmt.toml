@@ -1,0 +1,8 @@
+# rustfmt.toml — BioCraft Engine kod biçimlendirme kuralları
+# cargo fmt --all otomatik uygular; CI'da --check bayrağıyla doğrular.
+
+edition              = "2021"    # Cargo.toml ile tutarlı
+max_width            = 100       # Satır uzunluğu üst sınırı
+tab_spaces           = 4         # Girinti (space)
+newline_style        = "Auto"    # OS'a göre (LF/CRLF)
+use_small_heuristics = "Default" # İfade uzunluğuna göre otomatik karar
