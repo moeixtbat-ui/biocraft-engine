@@ -1,6 +1,6 @@
 # Rust / Cargo
 /target/
-Cargo.lock
+# Cargo.lock: binary workspace için repoda tutulur (MK: Cargo.lock kilitli)
 **/*.rs.bk
 *.pdb
 

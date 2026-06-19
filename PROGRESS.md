@@ -13,9 +13,9 @@
 - **Marka:** BioCraft Engine · biocraftengine.com
 - **Aktif sürüm hedefi:** MVP — tam kullanılabilir ilk sürüm (motor + çekirdek eklenti BioCraft Studio + AI yüzeyi)
 - **Kapsam:** Temel uygulama İP-00…İP-21 + Çekirdek eklenti ÇE-00…ÇE-12 + AI yüzey (İP-14 / YZ-00,01,06,08)
-- **Son tamamlanan gün:** Gün 0 — Ortam, Hesaplar ve Boş Depo (2026-06-20)
-- **Sıradaki gün:** Gün 1 — İP-00: Cargo Workspace İskeleti (biocraft-types L0)
-- **Derleme durumu:** Cargo workspace henüz oluşturulmadı (Gün 1'de başlıyor)
+- **Son tamamlanan gün:** Gün 1 — İP-00 (kısmi): Cargo workspace + biocraft-types L0 (2026-06-20)
+- **Sıradaki gün:** Gün 2 — İP-00 devamı: iskelet crate'ler (tüm L1-L5 boş stubs) + CI + boş pencere
+- **Derleme durumu:** ✅ `cargo build --workspace` + 18 test geçiyor; clippy/fmt temiz
 - **Bilinen bloke eden sorunlar:** yok
 
 ---
@@ -35,6 +35,7 @@
 | Gün | Tarih | Faz/Sprint | Ne Yapıldı | Durum | Test | Sonraki |
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 2026-06-20 | Pre-Sprint | Git init + GitHub remote bağlama + iskelet dosyalar (.gitignore, rust-toolchain.toml, README.md) + anayasa (ARCHITECTURE/CLAUDE/PROGRESS) + 5 spec dosyası yerleştirildi | ✅ | — | Gün 1: İP-00 Cargo Workspace |
+| 1 | 2026-06-20 | Faz 1 / İP-00 | Cargo workspace (resolver=2) + biocraft-types L0 crate: ProjectId, PluginId, Version(SemVer), DataClassification(MK-42), Capability(MK-13), JobStatus, Blake3Hash, Timestamp — Türkçe döküman yorumları + 18 birim testi | ✅ | 18/18 geçti | Gün 2: İP-16 (TDA hata şeması) veya diğer İP-00 parçası (iskelet crate'ler + CI) |
 
 > Durum sembolleri: ✅ Tamam · ⚠️ Yarım/TODO var · ❌ Bloke · ⏳ Henüz başlanmadı
 

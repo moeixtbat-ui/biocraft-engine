@@ -1,0 +1,12 @@
+# MK-40: Cargo workspace — bağımlılık yönü yalnızca L0→L5 (aşağıdan yukarı); döngüsel bağımlılık yasak.
+[workspace]
+resolver = "2"
+members = [
+    "crates/biocraft-types",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors   = ["BioCraft Engine Developers"]
+license   = "AGPL-3.0-or-later"
