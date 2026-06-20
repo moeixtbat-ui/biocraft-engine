@@ -1,11 +1,8 @@
 # deny.toml — BioCraft Engine bağımlılık politikası
 # Referans: docs/specs/Hukuk-ve-Operasyon.md Bölüm 1 (Lisans Stratejisi)
 # MK-60: Tüm bağımlılıklar bu politikaya uymak zorunda
-#
-# Çalıştırma: cargo deny check
-# CI'da:      EmbarkStudios/cargo-deny-action@v2
+# cargo-deny v0.16+ formatı (EmbarkStudios/cargo-deny-action@v2)
 
-# Hedef platform grafı (CI'da hangi üçlüler kontrol edilir)
 [graph]
 targets = [
     { triple = "x86_64-unknown-linux-gnu" },
@@ -13,17 +10,14 @@ targets = [
 ]
 
 # ─── Güvenlik açıkları (RustSec Advisory DB) ─────────────────────────────────
-# Kural: Bilinen CVE/güvenlik açığı içeren bağımlılık → CI hemen kırmızı
-# Yeni ignore girdisi eklemek = bilerek kabul etmek; PR açıklamasında gerekçe yaz
 [advisories]
 version = 2
 ignore = []
 
 # ─── Lisans politikası ───────────────────────────────────────────────────────
-# Hukuk-ve-Operasyon.md §1: Çekirdek AGPLv3 + SDK Apache-2.0.
-# AGPLv3 ile UYUMSUZ veya lisans bilgisi BELIRSIZ bağımlılıklar → reddedilir.
-# Aşağıdaki liste, biyoinformatik Rust ekosisteminin yaygın açık-kaynak lisanslarıdır;
-# yeni bir bağımlılık farklı lisans içeriyorsa burayı güncelle + avukata danış.
+# Hukuk-ve-Operasyon.md §1: AGPLv3 çekirdek + Apache-2.0 SDK.
+# Aşağıdaki liste dışındaki her lisans reddedilir.
+# Yeni bağımlılık farklı lisans içeriyorsa buraya ekle + avukata danış.
 [licenses]
 allow = [
     "MIT",
@@ -41,26 +35,16 @@ allow = [
     "BSL-1.0",
     "OpenSSL",
 ]
-# Lisans bilgisi hiç olmayan crate → reddedilir
-unlicensed = "deny"
-# GPL/LGPL ailesi bağımlılıklarda AGPL uyumunu elle doğrula → uyarı ver
-copyleft = "warn"
-# "OSI onaylıdır" veya "FSF özgür yazılım" genel etiketine dayanılmaz;
-# açık liste yukarıdaki allow bloğudur
-allow-osi-fsf-free = "neither"
 
 # ─── Yasaklı / tekrarlanan crate'ler ─────────────────────────────────────────
 [bans]
-# Aynı crate'in iki farklı sürümü → uyarı (bağımlılık çakışmasına işaret eder)
 multiple-versions = "warn"
-# Cargo.toml'da * sürüm joker karakteri → reddet (tekrar üretilebilirlik kural MK-60)
-wildcards = "deny"
-deny  = []
-skip  = []
+wildcards         = "deny"
+deny      = []
+skip      = []
 skip-tree = []
 
 # ─── Kaynak doğrulama ────────────────────────────────────────────────────────
-# Yalnızca crates.io'dan; bilinmeyen git/registry kaynakları reddedilir
 [sources]
 unknown-registry = "deny"
 unknown-git      = "warn"

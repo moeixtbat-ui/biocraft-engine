@@ -20,6 +20,10 @@ import json
 import subprocess
 import sys
 
+# Windows'ta varsayılan encoding cp1252 olur; Türkçe/Unicode karakterler için UTF-8 zorla
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 # MK-40: Her crate'in katmanı (L0 en düşük, L5 en yüksek)
 LAYERS: dict[str, int] = {
     # L0 — temel tipler
