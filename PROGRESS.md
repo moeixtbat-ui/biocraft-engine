@@ -15,7 +15,7 @@
 - **Kapsam:** Temel uygulama İP-00…İP-21 + Çekirdek eklenti ÇE-00…ÇE-12 + AI yüzey (İP-14 / YZ-00,01,06,08)
 - **Son tamamlanan gün:** Gün 3 — İP-00 (CI): Windows+Linux matrix + cargo-deny (deny.toml) + rustfmt/clippy yapılandırması (2026-06-20)
 - **Sıradaki gün:** Gün 4 — İP-16: TDA hata şeması (`biocraft-types` içine `BioCraftError`, standart hata yapısı, `correlation_id`)
-- **Derleme durumu:** ✅ `cargo build --workspace` (13 crate) + 18 test geçiyor; fmt/clippy/machete/topology temiz
+- **Derleme durumu:** ✅ `cargo build --workspace` (13 crate) + 18 test geçiyor; fmt/clippy/machete/topology/**cargo-deny** temiz. GitHub Actions: 3 job (ubuntu+windows+deny) **yeşil** (canlı doğrulandı)
 - **Bilinen bloke eden sorunlar:** yok
 
 ---
@@ -37,7 +37,7 @@
 | 0 | 2026-06-20 | Pre-Sprint | Git init + GitHub remote bağlama + iskelet dosyalar (.gitignore, rust-toolchain.toml, README.md) + anayasa (ARCHITECTURE/CLAUDE/PROGRESS) + 5 spec dosyası yerleştirildi | ✅ | — | Gün 1: İP-00 Cargo Workspace |
 | 1 | 2026-06-20 | Faz 1 / İP-00 | Cargo workspace (resolver=2) + biocraft-types L0 crate: ProjectId, PluginId, Version(SemVer), DataClassification(MK-42), Capability(MK-13), JobStatus, Blake3Hash, Timestamp — Türkçe döküman yorumları + 18 birim testi | ✅ | 18/18 geçti | Gün 2: İP-16 (TDA hata şeması) veya diğer İP-00 parçası (iskelet crate'ler + CI) |
 | 2 | 2026-06-20 | Faz 1 / İP-00 | 12 stub crate iskelet (L1–L5): biocraft-sdk/ipc/data/state/mem/render/plugin-host/net/ai-surface/ui/launcher/app — kök Cargo.toml 13 üye, hepsini derliyor; cargo-machete (0 kullanılmayan dep); MK-40 topoloji kontrol scripti (scripts/check-topology.py, Python+cargo metadata); .github/workflows/ci.yml (build/test/fmt/clippy/audit/machete/topology); fmt+clippy temiz | ✅ | 18/18 geçti (stubs sıfır test, types geçiyor) | Gün 3: CI hattı genişletme |
-| 3 | 2026-06-20 | Faz 1 / İP-00 | CI hattı genişletme (MK-58/MK-60): Windows+Linux matrix eklendi; cargo-deny + deny.toml (lisans politikası + advisory denetimi — Hukuk-ve-Operasyon §1); rustfmt.toml + clippy.toml temel yapılandırması; CI ayrı `deny` job'u; tüm yerel kontroller temiz | ✅ | 18/18 geçti; fmt/clippy/topology temiz | Gün 4: İP-16 (TDA hata şeması — `biocraft-types` içine `BioCraftError`, standart hata yapısı, `correlation_id`) |
+| 3 | 2026-06-20 | Faz 1 / İP-00 | CI hattı genişletme (MK-58/MK-60): Windows+Linux matrix; cargo-deny + deny.toml (lisans politikası + advisory — Hukuk-ve-Operasyon §1); rustfmt.toml + clippy.toml; ayrı `deny` job'u. **Canlı CI'da 3 sorun çıktı→çözüldü:** (1) Windows'ta topoloji scripti UnicodeEncodeError → `sys.stdout.reconfigure(utf-8)`; (2) deny.toml deprecated anahtarlar (unlicensed/allow-osi-fsf-free) silindi; (3) 13 crate'e `license.workspace=true`+`publish=false`, deny.toml `allow-wildcard-paths=true`. **Doğrulama testleri:** Actions'ta workflow çalıştı✅, tüm adımlar yeşil✅, bilerek format hatası→CI kırmızı (fmt adımı fail) doğrulandı✅ (feature dalında, sonra silindi) | ✅ | 18/18; fmt/clippy/topology/cargo-deny temiz; 3 job yeşil (canlı) | Gün 4: İP-16 (TDA hata şeması — `biocraft-types` içine `BioCraftError`, standart hata yapısı, `correlation_id`) |
 
 > Durum sembolleri: ✅ Tamam · ⚠️ Yarım/TODO var · ❌ Bloke · ⏳ Henüz başlanmadı
 
