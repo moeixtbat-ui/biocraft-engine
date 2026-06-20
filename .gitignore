@@ -47,6 +47,11 @@ logs/
 # Test çıktıları / golden farklar (büyük dosyalar için)
 test_output/
 
+# Geçici manuel test/smoke çıktıları (render host doğrulaması — stderr/stdout yönlendirmesi)
+smoke*.err
+smoke*.out
+tdr_test.*
+
 # BioCraft proje dosyaları (örnek / geçici)
 *.bcproj
 *.bcext

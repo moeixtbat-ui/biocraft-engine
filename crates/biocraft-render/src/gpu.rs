@@ -1,9 +1,12 @@
 //! wgpu cihaz/kuyruk/yüzey yönetimi (İP-04, MK-01, MK-04).
 //!
 //! [`GpuContext`] bir winit penceresine bağlı wgpu cihazını, kuyruğunu ve yüzeyini tutar.
-//! Sürücü çökerse [`GpuContext::yeniden_kur`] cihazı/yüzeyi sıfırdan oluşturur (TDR kurtarma —
-//! bkz. [`crate::tdr`]).  CPU fallback, wgpu *fallback adapter*'ı (yazılım rasterleştirici)
-//! istenerek elde edilir; donanım GPU bulunamazsa otomatik olarak buna düşülür.
+//! Sürücü çökerse [`GpuContext::yeniden_kur`] **pencere/instance/yüzeyi korur** ve yalnızca
+//! adapter/cihaz/kuyruğu yeniden ister; ardından mevcut yüzeyi yeni cihazla yapılandırır
+//! (TDR kurtarma — bkz. [`crate::tdr`]).  Yeni bir yüzey oluşturmak yerine mevcut olanı
+//! yeniden kullanırız: pencere başına yalnızca tek yüzey olabilir (aksi halde işletim sistemi
+//! "Native window is in use" hatası verir).  CPU fallback, wgpu *fallback adapter*'ı (yazılım
+//! rasterleştirici) istenerek elde edilir; donanım GPU bulunamazsa otomatik buna düşülür.
 
 use std::sync::Arc;
 
@@ -26,6 +29,8 @@ pub enum GpuHata {
 }
 
 /// Pencereye bağlı wgpu bağlamı: cihaz + kuyruk + yüzey + yapılandırma.
+///
+/// Pencere (`Arc<Window>`) yüzeyin içinde tutulduğundan ayrıca saklanmaz; yüzey `'static`'tir.
 pub struct GpuContext {
     /// wgpu örneği (backend seçimi burada yapılır).
     pub instance: wgpu::Instance,
@@ -35,11 +40,10 @@ pub struct GpuContext {
     pub device: wgpu::Device,
     /// Komut kuyruğu (gönderim).
     pub queue: wgpu::Queue,
-    /// Pencere çizim yüzeyi (pencere `Arc` olduğundan `'static`).
+    /// Pencere çizim yüzeyi (pencere `Arc` olduğundan `'static`; pencereyi canlı tutar).
     pub surface: wgpu::Surface<'static>,
     /// Yüzey yapılandırması (boyut/format/sunum modu).
     pub config: wgpu::SurfaceConfiguration,
-    pencere: Arc<Window>,
     backend: Backend,
 }
 
@@ -58,50 +62,20 @@ impl GpuContext {
             ..Default::default()
         });
 
+        // Yüzey pencereden bir kez oluşturulur ve bağlamın ömrü boyunca yeniden kullanılır.
         let surface = instance
             .create_surface(pencere.clone())
             .map_err(|e| GpuHata::Yuzey(e.to_string()))?;
 
         let cpu_zorla = matches!(tercih, BackendTercihi::CpuZorla);
+        let (adapter, device, queue, backend) =
+            adapter_ve_cihaz(&instance, &surface, cpu_zorla).await?;
 
-        // Önce tercih edilen adapter (donanım veya zorlanmış yazılım).
-        let mut adapter = istek_adapter(&instance, &surface, cpu_zorla).await;
-        // Donanım bulunamadıysa yazılım (fallback) adapter'ına düş (İP-04 CPU fallback).
-        if adapter.is_none() && !cpu_zorla {
-            log::warn!("Donanım GPU adapter'ı bulunamadı → yazılım (CPU) fallback deneniyor.");
-            adapter = istek_adapter(&instance, &surface, true).await;
-        }
-        let adapter = adapter.ok_or(GpuHata::AdapterYok)?;
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("biocraft-cihaz"),
-                    required_features: wgpu::Features::empty(),
-                    // WARP/yazılım adapter'larıyla da uyumlu kalmak için düşük taban limitler.
-                    required_limits: wgpu::Limits::downlevel_defaults()
-                        .using_resolution(adapter.limits()),
-                    memory_hints: wgpu::MemoryHints::default(),
-                },
-                None,
-            )
-            .await?;
-
-        let backend = backend_turet(&adapter.get_info());
         let boyut = pencere.inner_size();
         let caps = surface.get_capabilities(&adapter);
-        // egui kendi gama dönüşümünü yaptığı için doğrusal (Unorm) yüzey formatı tercih eder;
-        // sRGB yüzeyde renkler iki kez dönüşüp fazla parlak görünür (İP-04 token/tema doğruluğu).
-        // 3B sahneler (ÇE-07) gerekirse kendi gama işini shader'da yapar.
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| !f.is_srgb())
-            .unwrap_or_else(|| caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
+            format: sec_format(&caps),
             width: boyut.width.max(1),
             height: boyut.height.max(1),
             // MK-03: VSync ile sunum → kareler ekran yenilemesine senkron (60 FPS hedefi).
@@ -116,7 +90,7 @@ impl GpuContext {
             "GPU bağlamı kuruldu: backend={:?} adapter='{}' format={:?}",
             backend,
             adapter.get_info().name,
-            format
+            config.format
         );
 
         Ok(Self {
@@ -126,7 +100,6 @@ impl GpuContext {
             queue,
             surface,
             config,
-            pencere,
             backend,
         })
     }
@@ -156,19 +129,79 @@ impl GpuContext {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// TDR kurtarma: cihaz/kuyruk/yüzeyi sıfırdan yeniden oluşturur (MK-04).
-    /// `cpu_zorla` true ise yazılım adapter'ına düşülür (tekrarlı çökme sonrası).
-    /// Pencere değişmediği için aynı pencere tutamacı yeniden kullanılır.
+    /// TDR kurtarma (MK-04): pencere/instance/yüzey korunur; yalnızca adapter/cihaz/kuyruk
+    /// yeniden istenir ve mevcut yüzey yeni cihazla yapılandırılır.  `cpu_zorla` true ise yazılım
+    /// adapter'ına düşülür (tekrarlı çökme sonrası).  **Not:** Cihaz değiştiği için host, egui
+    /// gibi GPU kaynaklarını (renderer + dokular) tazelemelidir.
     pub fn yeniden_kur(&mut self, cpu_zorla: bool) -> Result<(), GpuHata> {
-        let tercih = if cpu_zorla {
-            BackendTercihi::CpuZorla
-        } else {
-            BackendTercihi::Otomatik
-        };
-        let yeni = Self::yeni(self.pencere.clone(), tercih)?;
-        *self = yeni;
+        pollster::block_on(self.yeniden_kur_async(cpu_zorla))
+    }
+
+    async fn yeniden_kur_async(&mut self, cpu_zorla: bool) -> Result<(), GpuHata> {
+        let (adapter, device, queue, backend) =
+            adapter_ve_cihaz(&self.instance, &self.surface, cpu_zorla).await?;
+
+        // Mevcut yüzeyi yeni cihazla yeniden yapılandır (eski cihaz, atama sonrası düşer).
+        let caps = self.surface.get_capabilities(&adapter);
+        self.config.format = sec_format(&caps);
+        self.config.alpha_mode = caps.alpha_modes[0];
+        self.surface.configure(&device, &self.config);
+
+        self.adapter = adapter;
+        self.device = device;
+        self.queue = queue;
+        self.backend = backend;
+
+        log::info!(
+            "Cihaz yeniden kuruldu (TDR kurtarma): backend={:?} adapter='{}'",
+            self.backend,
+            self.adapter.get_info().name
+        );
         Ok(())
     }
+}
+
+/// İstenen tercihle adapter + cihaz + kuyruk + backend döndürür (donanım, gerekirse yazılım fallback).
+async fn adapter_ve_cihaz(
+    instance: &wgpu::Instance,
+    surface: &wgpu::Surface<'static>,
+    cpu_zorla: bool,
+) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue, Backend), GpuHata> {
+    // Önce tercih edilen adapter (donanım veya zorlanmış yazılım).
+    let mut adapter = istek_adapter(instance, surface, cpu_zorla).await;
+    // Donanım bulunamadıysa yazılım (fallback) adapter'ına düş (İP-04 CPU fallback).
+    if adapter.is_none() && !cpu_zorla {
+        log::warn!("Donanım GPU adapter'ı bulunamadı → yazılım (CPU) fallback deneniyor.");
+        adapter = istek_adapter(instance, surface, true).await;
+    }
+    let adapter = adapter.ok_or(GpuHata::AdapterYok)?;
+
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("biocraft-cihaz"),
+                required_features: wgpu::Features::empty(),
+                // WARP/yazılım adapter'larıyla da uyumlu kalmak için düşük taban limitler.
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(adapter.limits()),
+                memory_hints: wgpu::MemoryHints::default(),
+            },
+            None,
+        )
+        .await?;
+
+    let backend = backend_turet(&adapter.get_info());
+    Ok((adapter, device, queue, backend))
+}
+
+/// Yüzey için format seçer: egui kendi gama dönüşümünü yaptığından doğrusal (Unorm) tercih edilir;
+/// sRGB yüzeyde renkler iki kez dönüşüp fazla parlak görünür (İP-04 token/tema doğruluğu).
+fn sec_format(caps: &wgpu::SurfaceCapabilities) -> wgpu::TextureFormat {
+    caps.formats
+        .iter()
+        .copied()
+        .find(|f| !f.is_srgb())
+        .unwrap_or_else(|| caps.formats[0])
 }
 
 /// wgpu adapter isteği yardımcı (donanım veya fallback).

@@ -319,7 +319,19 @@ impl Sahne {
         let basla = Instant::now();
         match self.gpu.yeniden_kur(cpu_zorla) {
             Ok(()) => {
-                // Cihaz değişti → egui renderer'ı yeni cihazla yeniden oluştur.
+                // Cihaz değişti → egui yığınını tazele. Yeni bir Context, dokuları (font atlası
+                // vb.) yeni renderer'a baştan yükletir; yalnızca renderer'ı yenilemek eski doku
+                // kimliklerini geçersiz bırakıp ikinci bir çökmeye yol açardı.
+                let yeni_ctx = egui::Context::default();
+                self.egui_state = egui_winit::State::new(
+                    yeni_ctx.clone(),
+                    egui::ViewportId::ROOT,
+                    self.pencere.as_ref(),
+                    Some(self.pencere.scale_factor() as f32),
+                    None,
+                    Some(2048),
+                );
+                self.egui_ctx = yeni_ctx;
                 self.egui_renderer = egui_wgpu::Renderer::new(
                     &self.gpu.device,
                     self.gpu.config.format,
