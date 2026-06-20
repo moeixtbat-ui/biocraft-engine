@@ -16,4 +16,5 @@ biocraft-state  = { path = "../biocraft-state" }
 # MK-01: UI = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
 # İP-16 bileşenleri saf egui ile yazılır; pencere/font yönetimi İP-04 (render host)
 # tarafından sağlanır — bu yüzden burada yalnızca egui'ye bağlanırız.
-egui = "0.29"
+# Sürüm workspace'ten gelir → tüm crate'lerde tek egui sürümü (tip uyumu).
+egui = { workspace = true }

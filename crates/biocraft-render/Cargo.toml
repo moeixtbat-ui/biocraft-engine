@@ -4,10 +4,24 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
-description = "BioCraft Engine — L3: wgpu/egui render altyapısı + tasarım token'ları (MK-01, MK-04, MK-52, MK-40)"
+description = "BioCraft Engine — L3: wgpu render altyapısı + kare bütçesi + GPU TDR kurtarma (MK-01, MK-03, MK-04, MK-40)"
 
 # MK-40: L3 — yalnızca L0/L1/L2 katmanlarına bağlı; üst katmanlara bağlantı yasak.
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
 biocraft-mem   = { path = "../biocraft-mem" }
+
+# MK-01: wgpu birincil çizim backend'i. winit yalnızca pencere tutamacı (surface) için.
+# Bu crate egui'ye bağlı DEĞİLDİR: egui↔wgpu köprüsü host (biocraft-app) katmanındadır —
+# render saf GPU/performans motorudur (kare bütçesi + TDR + backend seçimi).
+wgpu      = { workspace = true }
+winit     = { workspace = true }
+pollster  = { workspace = true }
+log       = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+# İP-04 / MK-04: cudarc opsiyonel; varsayılan KAPALI. Etkinse backend/cuda.rs iskeleti derlenir.
+# Tek aktif backend kuralı korunur (wgpu ve CUDA aynı anda VRAM kullanmaz).
+cuda = []

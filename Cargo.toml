@@ -28,3 +28,18 @@ version   = "0.1.0"
 edition   = "2021"
 authors   = ["BioCraft Engine Developers"]
 license   = "AGPL-3.0-or-later"
+
+# Ortak dış bağımlılık sürümleri tek yerden sabitlenir (MK-01 render/UI yığını + yardımcılar).
+# Böylece egui/wgpu/winit tüm crate'lerde TEK sürüme çözülür → tip uyumu garanti.
+[workspace.dependencies]
+# MK-01: Native UI yığını — winit + wgpu + egui (Tauri/Electron/Bevy YASAK).
+egui       = "0.29"
+egui-wgpu  = "0.29"
+egui-winit = "0.29"
+wgpu       = "22"
+winit      = "0.30"
+# Yardımcılar
+pollster   = "0.3"
+log        = "0.4"
+env_logger = "0.11"
+thiserror  = "1"

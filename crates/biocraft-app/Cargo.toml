@@ -4,12 +4,27 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
-description = "BioCraft Engine — L5: Ana binary; tüm katmanları birleştirir (MK-40)"
+description = "BioCraft Engine — L5: Ana binary; winit+wgpu+egui pencere host'u (MK-01, MK-03, MK-04, MK-40)"
 
 [[bin]]
 name = "biocraft"
 path = "src/main.rs"
 
-# MK-40: L5 — tüm alt katmanlara (L0..L4) bağlanabilir; stub aşamasında bağımlılık yok.
-# Gerçek bağımlılıklar İP-03 (kabuk) ve İP-04 (render) ile eklenecek.
+# MK-40: L5 — tüm alt katmanlara (L0..L4) bağlanabilir.
+# İP-04: render motoru (biocraft-render) + UI galerisi (biocraft-ui) burada birleşir.
 [dependencies]
+biocraft-render = { path = "../biocraft-render" }
+biocraft-ui     = { path = "../biocraft-ui" }
+
+# MK-01: pencere + egui↔wgpu köprüsü host katmanındadır (render egui'ye bağlı değil).
+winit      = { workspace = true }
+wgpu       = { workspace = true }
+egui       = { workspace = true }
+egui-winit = { workspace = true }
+egui-wgpu  = { workspace = true }
+log        = { workspace = true }
+env_logger = { workspace = true }
+
+[features]
+# İP-04: CUDA iskeletini render üzerinden geçişli aç (varsayılan kapalı).
+cuda = ["biocraft-render/cuda"]
