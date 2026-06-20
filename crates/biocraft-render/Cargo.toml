@@ -20,6 +20,11 @@ winit     = { workspace = true }
 pollster  = { workspace = true }
 log       = { workspace = true }
 thiserror = { workspace = true }
+# MK-52: assets/tokens.json ayrıştırma (renk token sistemi, kodda sabit renk yok).
+serde      = { workspace = true }
+serde_json = { workspace = true }
+# İP-04: 3B vertex/uniform yapılarını GPU'ya bayt olarak geçirmek için (POD).
+bytemuck   = { workspace = true }
 
 [features]
 # İP-04 / MK-04: cudarc opsiyonel; varsayılan KAPALI. Etkinse backend/cuda.rs iskeleti derlenir.

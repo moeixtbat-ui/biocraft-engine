@@ -113,14 +113,14 @@ impl ConfirmDialog {
                 let onay_buton = if self.yikici {
                     egui::Button::new(
                         egui::RichText::new(onay_metni)
-                            .color(egui::Color32::WHITE)
+                            .color(tok.renk.hata_ustu)
                             .strong(),
                     )
                     .fill(tok.renk.hata)
                 } else {
                     egui::Button::new(
                         egui::RichText::new(onay_metni)
-                            .color(egui::Color32::WHITE)
+                            .color(tok.renk.vurgu_ustu)
                             .strong(),
                     )
                     .fill(tok.renk.vurgu)

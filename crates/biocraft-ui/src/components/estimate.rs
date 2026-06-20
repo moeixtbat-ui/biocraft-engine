@@ -65,7 +65,7 @@ impl EstimateDialog {
                 }
                 let devam = egui::Button::new(
                     egui::RichText::new(ceviri(dil, Anahtar::Devam))
-                        .color(egui::Color32::WHITE)
+                        .color(tok.renk.vurgu_ustu)
                         .strong(),
                 )
                 .fill(tok.renk.vurgu);

@@ -1,0 +1,3 @@
+# Bu yer tutucu, fonts/ klasörünün depoda var olmasını sağlar.
+# Gerçek .ttf dosyaları (Inter / JetBrains Mono / Space Grotesk) buraya konur.
+# Bkz. assets/README.md (insan-eli, opsiyonel — yoksa egui gömülü fontuna düşülür).

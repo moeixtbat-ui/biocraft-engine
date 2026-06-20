@@ -11,7 +11,7 @@ use crate::components::{
     IsIlerleme, OnayKarari, RozetEylem, Skeleton, StatusBadge, TahminKarari, Toast, ToastManager,
 };
 use crate::i18n::{ceviri, Anahtar, Dil};
-use crate::tokens::Tokenlar;
+use crate::tokens::{Tema, Tokenlar};
 
 /// Dile göre iki sabit metinden birini seçen küçük yardımcı (yalnızca galeriye özel metinler).
 fn metin(dil: Dil, tr: &'static str, en: &'static str) -> &'static str {
@@ -25,8 +25,10 @@ fn metin(dil: Dil, tr: &'static str, en: &'static str) -> &'static str {
 pub struct Gallery {
     /// Aktif dil.
     pub dil: Dil,
-    /// Koyu tema mı?
-    pub koyu: bool,
+    /// Aktif tema (Koyu / Açık / Yüksek-kontrast).
+    pub tema: Tema,
+    /// Örnek 2B çizim (bir kez üretilir; her karede yeniden kurulmaz — performans).
+    plot: biocraft_render::plot::Plot2B,
     toasts: ToastManager,
     is: IsIlerleme,
     hata_diyalog: ErrorDialog,
@@ -41,7 +43,8 @@ impl Default for Gallery {
     fn default() -> Self {
         Self {
             dil: Dil::Tr,
-            koyu: false,
+            tema: Tema::Koyu,
+            plot: crate::plot::ornek_plot(),
             toasts: ToastManager::new(),
             is: IsIlerleme::yeni("Varyantlar taranıyor"),
             hata_diyalog: ErrorDialog::new(),
@@ -60,6 +63,11 @@ impl Gallery {
         Self::default()
     }
 
+    /// Aktif temanın token paketi (host'un 3B malzeme/clear rengini token'dan alması için).
+    pub fn aktif_tokenlar(&self) -> Tokenlar {
+        Tokenlar::temalı(self.tema)
+    }
+
     /// Sekiz bileşen bölümünün başlıkları (test: tüm bileşenler gösteriliyor mu).
     pub fn bolum_basliklari(dil: Dil) -> [&'static str; 8] {
         [
@@ -76,13 +84,10 @@ impl Gallery {
 
     /// Tüm galeriyi çizer (üst bar + bölümler + üst-üste binen toast'lar ve modaller).
     pub fn show(&mut self, ctx: &egui::Context) {
-        // Tema token'larını uygula (renkler bundan sonra token'dan gelir).
-        ctx.set_visuals(if self.koyu {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        });
-        let tok = Tokenlar::temadan(self.koyu);
+        // Tema token'larını uygula: TÜM egui yüzeyleri (panel/pencere/widget) token'dan renklenir
+        // (MK-52) → yüksek-kontrast teması da her yere yansır.  Renkler bundan sonra token'dan.
+        let tok = Tokenlar::temalı(self.tema);
+        ctx.set_visuals(tok.egui_visuals());
         let basliklar = Self::bolum_basliklari(self.dil);
 
         // ── Üst bar: başlık + dil + tema ──────────────────────────────────────
@@ -94,16 +99,9 @@ impl Gallery {
                     "BioCraft — TDA Component Gallery",
                 ));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Tema değiştirici.
-                    if ui
-                        .button(if self.koyu {
-                            metin(self.dil, "☀ Açık tema", "☀ Light")
-                        } else {
-                            metin(self.dil, "🌙 Koyu tema", "🌙 Dark")
-                        })
-                        .clicked()
-                    {
-                        self.koyu = !self.koyu;
+                    // Tema değiştirici (Koyu → Açık → Yüksek-kontrast döngüsü).
+                    if ui.button(self.tema.dugme_etiketi(self.dil)).clicked() {
+                        self.tema = self.tema.sonraki();
                     }
                     ui.separator();
                     // Dil değiştirici.
@@ -324,6 +322,23 @@ impl Gallery {
                 });
                 ui.add_space(tok.bosluk.l);
 
+                // 9) 2B Çizim (İP-04 render demosu: coverage çizgi + varyant scatter; renk token'dan).
+                ui.label(
+                    egui::RichText::new(metin(
+                        self.dil,
+                        "2B Çizim — coverage (çizgi) + varyant (scatter)",
+                        "2D Plot — coverage (line) + variants (scatter)",
+                    ))
+                    .size(16.0)
+                    .strong()
+                    .color(tok.renk.vurgu),
+                );
+                ui.add_space(tok.bosluk.xs);
+                crate::plot::PlotWidget::yeni(&self.plot)
+                    .yukseklik(170.0)
+                    .goster(ui, &tok);
+                ui.add_space(tok.bosluk.l);
+
                 // Son işlem geri bildirimi (TDA madde 15).
                 if let Some(olay) = &self.son_olay {
                     ui.separator();
@@ -428,12 +443,13 @@ mod tests {
 
     #[test]
     fn galeri_tum_tema_ve_dillerde_headless_cizilir() {
-        // Tüm bileşenleri bir karede çiz; hiçbir tema/dil kombinasyonunda panik olmamalı.
-        for koyu in [false, true] {
+        // Tüm bileşenleri bir karede çiz; hiçbir tema/dil kombinasyonunda panik olmamalı
+        // (2B plot bölümü + üç tema dahil).
+        for tema in [Tema::Koyu, Tema::Acik, Tema::YuksekKontrast] {
             for dil in [Dil::Tr, Dil::En] {
                 let ctx = egui::Context::default();
                 let mut g = Gallery::new();
-                g.koyu = koyu;
+                g.tema = tema;
                 g.dil = dil;
                 let _ = ctx.run(egui::RawInput::default(), |ctx| {
                     g.show(ctx);

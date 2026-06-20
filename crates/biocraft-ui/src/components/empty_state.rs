@@ -59,7 +59,7 @@ impl EmptyState {
                 ui.add_space(tok.bosluk.m);
                 let buton = egui::Button::new(
                     egui::RichText::new(etiket)
-                        .color(egui::Color32::WHITE)
+                        .color(tok.renk.vurgu_ustu)
                         .strong(),
                 )
                 .fill(tok.renk.vurgu);

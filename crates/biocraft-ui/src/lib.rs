@@ -10,6 +10,8 @@
 
 pub mod components;
 pub mod i18n;
+pub mod plot;
+pub mod tipografi;
 pub mod tokens;
 
 // egui'yi yeniden dışa aktar: üst katmanlar (launcher/app) sürüm uyumu için
@@ -27,4 +29,6 @@ pub use components::{
     StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
-pub use tokens::Tokenlar;
+pub use plot::PlotWidget;
+pub use tipografi::{fontlari_yukle, metin_stilleri, FontDurumu};
+pub use tokens::{Onem, Tema, Tokenlar};

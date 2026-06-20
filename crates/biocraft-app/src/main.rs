@@ -14,9 +14,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use biocraft_render::{
-    Backend, BackendTercihi, FrameBudget, GpuContext, KurtarmaPlani, TdrKurtarma,
+    ornek_top_cubuk, Backend, BackendTercihi, FrameBudget, GpuContext, Kamera3B, KurtarmaPlani,
+    Sahne3B, TdrKurtarma, Tipografi,
 };
-use biocraft_ui::Gallery;
+use biocraft_ui::{Dil, Gallery, Tokenlar};
 
 use egui_wgpu::ScreenDescriptor;
 use winit::application::ApplicationHandler;
@@ -87,6 +88,12 @@ struct Sahne {
     tdr: TdrKurtarma,
     /// "GPU yeniden başlatıldı" bildirimi (metin + gösterim başlangıcı).
     tdr_bildirim: Option<(String, Instant)>,
+    /// 3B off-screen çizici (native wgpu top-çubuk; ÇE-07 öncesi 3B temeli).
+    sahne3b: Sahne3B,
+    /// 3B renk dokusunun egui'deki kimliği (sağ panelde gösterilir).
+    sahne3b_tex: egui::TextureId,
+    /// Animasyon/zaman başlangıcı (3B yörünge açısı buradan türetilir).
+    baslangic: Instant,
 }
 
 impl ApplicationHandler for Uygulama {
@@ -131,8 +138,36 @@ impl ApplicationHandler for Uygulama {
             None,
             Some(2048),
         );
-        let egui_renderer =
+        let mut egui_renderer =
             egui_wgpu::Renderer::new(&gpu.device, gpu.config.format, None, 1, false);
+
+        // Tipografi (Bölüm 0.8): açık-lisanslı fontları (assets/fonts) yükle; yoksa egui gömülü
+        // fontuna düş — sessizce değil, bilgilendirerek (TDA madde 1).  Boyutlar mantıksal;
+        // DPI ölçeğini egui pixels_per_point uygular (4K + çoklu monitör akıcılığı).
+        let font_durumu = biocraft_ui::fontlari_yukle(
+            &egui_ctx,
+            font_oku("Inter-Regular.ttf"),
+            font_oku("JetBrainsMono-Regular.ttf"),
+            font_oku("SpaceGrotesk-Medium.ttf"),
+        );
+        biocraft_ui::metin_stilleri(&egui_ctx, &Tipografi::varsayilan());
+        if font_durumu.eksik_var() {
+            log::info!(
+                "Özel fontlar assets/fonts'ta tam değil → egui gömülü fontu kullanılıyor \
+                 (Inter={}, JetBrainsMono={}, SpaceGrotesk={}).",
+                font_durumu.govde,
+                font_durumu.kod,
+                font_durumu.baslik
+            );
+        }
+
+        // 3B off-screen sahne (token-renkli top-çubuk); renk dokusu egui'ye kaydedilir → sağ panel.
+        let sahne3b = Sahne3B::yeni(&gpu.device, 640, 480, &ornek_top_cubuk());
+        let sahne3b_tex = egui_renderer.register_native_texture(
+            &gpu.device,
+            sahne3b.renk_view(),
+            wgpu::FilterMode::Linear,
+        );
 
         self.durum = Some(Sahne {
             pencere,
@@ -144,6 +179,9 @@ impl ApplicationHandler for Uygulama {
             budget: FrameBudget::varsayilan(),
             tdr: TdrKurtarma::yeni(),
             tdr_bildirim: None,
+            sahne3b,
+            sahne3b_tex,
+            baslangic: Instant::now(),
         });
     }
 
@@ -207,11 +245,36 @@ impl Sahne {
         let backend = self.gpu.backend();
         let bildirim = self.tdr_bildirim.as_ref().map(|(m, _)| m.clone());
 
+        // Aktif temanın token'ları: 2B (egui visuals) + 3B (malzeme/clear) + pencere clear rengi
+        // — hepsi token'dan gelir (MK-52: kodda sabit renk yok).
+        let tok = self.gallery.aktif_tokenlar();
+        let zemin_lin = egui::Rgba::from(tok.renk.zemin).to_array();
+
+        // 3B sahneyi off-screen dokuya çiz (yörünge animasyonu; malzeme + zemin token rengi).
+        let aci = self.baslangic.elapsed().as_secs_f32() * 0.6;
+        let (en3b, boy3b) = self.sahne3b.boyut();
+        let kamera = Kamera3B::yorunge(aci, 5.0, 1.8, en3b as f32 / boy3b as f32);
+        let malzeme_lin = egui::Rgba::from(tok.renk.vurgu).to_array();
+        let temizle3b_lin = egui::Rgba::from(tok.renk.zemin_alt).to_array();
+        self.sahne3b.ciz(
+            &self.gpu.device,
+            &self.gpu.queue,
+            &kamera,
+            [0.5, 0.85, 0.6],
+            malzeme_lin,
+            temizle3b_lin,
+        );
+
         let raw = self.egui_state.take_egui_input(self.pencere.as_ref());
+        let dil = self.gallery.dil;
+        let tex_id = self.sahne3b_tex;
         // Context klonu (ucuz Arc) → kapanış self.gallery'yi ödünç alırken self.egui_ctx çakışmaz.
         let ctx = self.egui_ctx.clone();
         let full = ctx.run(raw, |c| {
-            durum_cubugu(c, fps, backend, bildirim.as_deref());
+            // TÜM egui yüzeyini token'dan boya (durum çubuğu + 3B panel + galeri aynı karede).
+            c.set_visuals(tok.egui_visuals());
+            durum_cubugu(c, fps, backend, bildirim.as_deref(), &tok);
+            sahne3b_paneli(c, tex_id, en3b, boy3b, dil, &tok);
             self.gallery.show(c);
         });
 
@@ -267,10 +330,11 @@ impl Sahne {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
+                            // MK-52: pencere clear rengi de token'dan (bg.primary, doğrusal uzayda).
                             load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.04,
-                                g: 0.05,
-                                b: 0.07,
+                                r: zemin_lin[0] as f64,
+                                g: zemin_lin[1] as f64,
+                                b: zemin_lin[2] as f64,
                                 a: 1.0,
                             }),
                             store: wgpu::StoreOp::Store,
@@ -339,6 +403,21 @@ impl Sahne {
                     1,
                     false,
                 );
+                // Tipografi yeni egui Context'te baştan kurulmalı (fontlar + boyutlar).
+                let _ = biocraft_ui::fontlari_yukle(
+                    &self.egui_ctx,
+                    font_oku("Inter-Regular.ttf"),
+                    font_oku("JetBrainsMono-Regular.ttf"),
+                    font_oku("SpaceGrotesk-Medium.ttf"),
+                );
+                biocraft_ui::metin_stilleri(&self.egui_ctx, &Tipografi::varsayilan());
+                // 3B çiziciyi + egui doku kaydını yeni cihazla yeniden kur (eski GPU kaynakları geçersiz).
+                self.sahne3b = Sahne3B::yeni(&self.gpu.device, 640, 480, &ornek_top_cubuk());
+                self.sahne3b_tex = self.egui_renderer.register_native_texture(
+                    &self.gpu.device,
+                    self.sahne3b.renk_view(),
+                    wgpu::FilterMode::Linear,
+                );
                 let gecen = basla.elapsed();
                 self.tdr.cihaz_kuruldu(gecen);
                 let ms = gecen.as_millis();
@@ -365,7 +444,14 @@ impl Sahne {
 }
 
 /// Alt durum çubuğu: FPS + aktif backend + (varsa) CPU uyarısı + TDR bildirimi.
-fn durum_cubugu(ctx: &egui::Context, fps: f32, backend: Backend, bildirim: Option<&str>) {
+/// Renkler token'dan gelir (MK-52): CPU uyarısı = uyarı, TDR bildirimi = başarı.
+fn durum_cubugu(
+    ctx: &egui::Context,
+    fps: f32,
+    backend: Backend,
+    bildirim: Option<&str>,
+    tok: &Tokenlar,
+) {
     egui::TopBottomPanel::bottom("biocraft_durum").show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label(format!("FPS: {fps:.0}"));
@@ -373,18 +459,62 @@ fn durum_cubugu(ctx: &egui::Context, fps: f32, backend: Backend, bildirim: Optio
             ui.label(format!("Backend: {}", backend.etiket()));
             if backend.yazilim_mi() {
                 ui.separator();
-                ui.colored_label(
-                    egui::Color32::from_rgb(220, 160, 40),
-                    "⚠ Yazılım (CPU) modu — performans sınırlı",
-                );
+                ui.colored_label(tok.renk.uyari, "⚠ Yazılım (CPU) modu — performans sınırlı");
             }
             ui.separator();
             ui.weak("T: GPU çökmesi simülasyonu · Esc: çıkış");
             if let Some(b) = bildirim {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.colored_label(egui::Color32::from_rgb(90, 200, 120), format!("✔ {b}"));
+                    ui.colored_label(tok.renk.basari, format!("✔ {b}"));
                 });
             }
         });
     });
+}
+
+/// Sağ panel: 3B off-screen sahnenin (top-çubuk) canlı dokusunu gösterir + kısa açıklama.
+fn sahne3b_paneli(
+    ctx: &egui::Context,
+    tex_id: egui::TextureId,
+    en: u32,
+    boy: u32,
+    dil: Dil,
+    tok: &Tokenlar,
+) {
+    let (baslik, aciklama) = match dil {
+        Dil::Tr => (
+            "3B Sahne (wgpu)",
+            "Native wgpu ile çizilen top-çubuk; malzeme rengi token'dan. \
+             Kürdele/yüzey için temel (ileride ÇE-07).",
+        ),
+        Dil::En => (
+            "3D Scene (wgpu)",
+            "Ball-and-stick drawn with native wgpu; material color from tokens. \
+             Base for ribbon/surface (later ÇE-07).",
+        ),
+    };
+    egui::SidePanel::right("biocraft_3b")
+        .resizable(true)
+        .default_width(320.0)
+        .show(ctx, |ui| {
+            ui.add_space(tok.bosluk.s);
+            ui.heading(baslik);
+            ui.add_space(tok.bosluk.xs);
+            let genislik = ui.available_width().max(32.0);
+            let oran = boy as f32 / en as f32;
+            let sized =
+                egui::load::SizedTexture::new(tex_id, egui::vec2(genislik, genislik * oran));
+            ui.add(egui::Image::new(sized));
+            ui.add_space(tok.bosluk.s);
+            ui.label(
+                egui::RichText::new(aciklama)
+                    .color(tok.renk.metin_soluk)
+                    .small(),
+            );
+        });
+}
+
+/// `assets/fonts` altından bir font dosyasını okur (yoksa None → egui gömülü fontuna düşülür).
+fn font_oku(dosya: &str) -> Option<Vec<u8>> {
+    std::fs::read(std::path::Path::new("assets/fonts").join(dosya)).ok()
 }
