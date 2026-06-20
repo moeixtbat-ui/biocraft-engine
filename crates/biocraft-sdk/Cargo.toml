@@ -2,6 +2,8 @@
 name        = "biocraft-sdk"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L1: Eklenti SDK'sı ve ortak yardımcılar (MK-17, MK-40)"
 
 # MK-40: L1 — yalnızca L0 (biocraft-types) katmanına bağlı; üst katmanlara bağlantı yasak.

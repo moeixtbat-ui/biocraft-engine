@@ -2,6 +2,8 @@
 name        = "biocraft-state"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L2: Uygulama state, otomatik kayıt, undo/redo (MK-36, MK-38, MK-40)"
 
 # MK-40: L2 — yalnızca L0/L1 katmanlarına bağlı; üst katmanlara bağlantı yasak.

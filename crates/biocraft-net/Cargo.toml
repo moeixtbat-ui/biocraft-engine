@@ -2,6 +2,8 @@
 name        = "biocraft-net"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L3: Iroh P2P arayüzü (yalnız kanca — MK-50, MK-40)"
 
 # MK-40: L3 — yalnızca L0/L1/L2 katmanlarına bağlı; üst katmanlara bağlantı yasak.

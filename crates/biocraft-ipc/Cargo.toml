@@ -2,6 +2,8 @@
 name        = "biocraft-ipc"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L1: IPC/gRPC/Arrow Flight köprüleri (MK-39, MK-40)"
 
 # MK-40: L1 — yalnızca L0 (biocraft-types) katmanına bağlı; üst katmanlara bağlantı yasak.

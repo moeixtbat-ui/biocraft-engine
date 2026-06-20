@@ -2,6 +2,8 @@
 name        = "biocraft-app"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L5: Ana binary; tüm katmanları birleştirir (MK-40)"
 
 [[bin]]

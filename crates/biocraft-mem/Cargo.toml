@@ -2,6 +2,8 @@
 name        = "biocraft-mem"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L2: Global Memory Orchestrator + Donanım Koruma / Zero-Impact (MK-21, MK-24, MK-40)"
 
 # MK-40: L2 — yalnızca L0/L1 katmanlarına bağlı; üst katmanlara bağlantı yasak.

@@ -19,6 +19,9 @@ ignore = []
 # Aşağıdaki liste dışındaki her lisans reddedilir.
 # Yeni bağımlılık farklı lisans içeriyorsa buraya ekle + avukata danış.
 [licenses]
+# Allow listesinde olup henüz hiçbir bağımlılıkta görülmeyen lisanslar uyarı üretmesin
+# (stub aşaması; bağımlılık eklendikçe bu lisanslar kullanılacak)
+unused-allowed-license = "allow"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -39,7 +42,10 @@ allow = [
 # ─── Yasaklı / tekrarlanan crate'ler ─────────────────────────────────────────
 [bans]
 multiple-versions = "warn"
-wildcards         = "deny"
+# Cargo.toml'da * sürüm joker karakteri → reddet (tekrar üretilebilirlik, MK-60)
+wildcards = "deny"
+# İç workspace path bağımlılıkları (biocraft-* arası) sürüm taşımaz; bunları wildcard sayma
+allow-wildcard-paths = true
 deny      = []
 skip      = []
 skip-tree = []

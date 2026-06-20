@@ -2,6 +2,8 @@
 name        = "biocraft-plugin-host"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L3: Wasmtime + capability + subprocess/konteyner yönetimi (MK-12, MK-13, MK-15, MK-40)"
 
 # MK-40: L3 — yalnızca L0/L1/L2 katmanlarına bağlı; üst katmanlara bağlantı yasak.

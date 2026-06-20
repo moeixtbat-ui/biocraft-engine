@@ -2,6 +2,8 @@
 name        = "biocraft-types"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L0 temel tipler (MK-40: hiçbir biocraft-* crate'ine bağlı değil)"
 
 # MK-40: L0 — yalnızca harici crate'lere (serde/uuid/chrono) bağımlı; workspace crate'lerine sıfır bağımlılık.
