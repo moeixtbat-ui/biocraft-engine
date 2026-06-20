@@ -4,14 +4,24 @@
 //! (açık/koyu) ve **dil** (TR/EN) değiştirici vardır.  Bu ekran hem geliştirici
 //! referansıdır hem de tema/i18n/erişilebilirlik güvencelerinin gözle doğrulandığı yerdir.
 
+use biocraft_mem::{
+    akisla_isle, dosya_butce_kontrol, hesap_plani, insan_bayt, AcmaSecenegi, AkisAyar,
+    BellekBileseni, BellekOrkestratoru, ButceKarari, OnbellekTutamac, OncelikDurumu, OncelikModu,
+    Rezervasyon,
+};
 use biocraft_types::{ErrorReport, JobStatus};
 
 use crate::components::{
-    ConfirmDialog, EmptyState, ErrorDialog, EstimateDialog, HataDiyalogEylem, IlerlemeEylem,
-    IsIlerleme, OnayKarari, RozetEylem, Skeleton, StatusBadge, TahminKarari, Toast, ToastManager,
+    ButceDialog, ConfirmDialog, EmptyState, ErrorDialog, EstimateDialog, HataDiyalogEylem,
+    IlerlemeEylem, IsIlerleme, OnayKarari, RozetEylem, Skeleton, StatusBadge, TahminKarari, Toast,
+    ToastManager,
 };
 use crate::i18n::{ceviri, Anahtar, Dil};
 use crate::tokens::{Tema, Tokenlar};
+
+/// Galeri demo bütçesi (256 MB) ve birim sabitleri.
+const MB: u64 = 1024 * 1024;
+const DEMO_BUTCE: u64 = 256 * MB;
 
 /// Dile göre iki sabit metinden birini seçen küçük yardımcı (yalnızca galeriye özel metinler).
 fn metin(dil: Dil, tr: &'static str, en: &'static str) -> &'static str {
@@ -37,6 +47,12 @@ pub struct Gallery {
     tahmin: Option<EstimateDialog>,
     sahte_ilerleme: f32,
     son_olay: Option<String>,
+    // İP-08 demosu: bellek orkestratörü + öncelik + bütçe diyaloğu + canlı rezervasyonlar.
+    ork: BellekOrkestratoru,
+    oncelik: OncelikModu,
+    butce_dialog: Option<ButceDialog>,
+    demo_rez: Vec<Rezervasyon>,
+    demo_cache: Vec<OnbellekTutamac>,
 }
 
 impl Default for Gallery {
@@ -53,6 +69,11 @@ impl Default for Gallery {
             tahmin: None,
             sahte_ilerleme: 0.0,
             son_olay: None,
+            ork: BellekOrkestratoru::yeni(DEMO_BUTCE),
+            oncelik: OncelikModu::Denge,
+            butce_dialog: None,
+            demo_rez: Vec::new(),
+            demo_cache: Vec::new(),
         }
     }
 }
@@ -339,6 +360,10 @@ impl Gallery {
                     .goster(ui, &tok);
                 ui.add_space(tok.bosluk.l);
 
+                // 10) Bellek bütçesi & öncelik (İP-08 — canlı orkestratör demosu).
+                self.bellek_bolumu(ui, ctx, &tok);
+                ui.add_space(tok.bosluk.l);
+
                 // Son işlem geri bildirimi (TDA madde 15).
                 if let Some(olay) = &self.son_olay {
                     ui.separator();
@@ -410,8 +435,205 @@ impl Gallery {
             });
         }
 
+        // Bellek bütçesi diyaloğu (İP-08).
+        let mut butce_karar = None;
+        if let Some(d) = &self.butce_dialog {
+            butce_karar = d.show(ctx, self.dil, &tok);
+        }
+        if let Some(secenek) = butce_karar {
+            self.butce_dialog = None;
+            self.son_olay = Some(
+                match secenek {
+                    AcmaSecenegi::AkisModu => {
+                        metin(self.dil, "Akış modunda açılıyor", "Opening in stream mode")
+                    }
+                    AcmaSecenegi::CloudBurst => {
+                        metin(self.dil, "Bulut (yer tutucu)", "Cloud (placeholder)")
+                    }
+                    AcmaSecenegi::Iptal => metin(self.dil, "Açma iptal edildi", "Open cancelled"),
+                }
+                .to_string(),
+            );
+        }
+
         // ── Üst-üste binen bildirimler (sağ-üst) ──────────────────────────────
         let _ = self.toasts.show(ctx, self.dil, &tok);
+    }
+
+    /// İP-08 demosu: bellek göstergesi + rezervasyon/önbellek/baskı butonları +
+    /// bütçe diyaloğu tetikleyici + out-of-core akış + öncelik modu (canlı orkestratör).
+    fn bellek_bolumu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tok: &Tokenlar) {
+        let dil = self.dil;
+        bolum_basligi(
+            ui,
+            tok,
+            metin(
+                dil,
+                "Bellek bütçesi & öncelik (İP-08)",
+                "Memory budget & priority (İP-08)",
+            ),
+        );
+
+        // Bellek göstergesi (durum çubuğu adayı): rezerve / toplam + doluluk çubuğu.
+        let durum = self.ork.durum();
+        ui.label(
+            egui::RichText::new(format!(
+                "{}: {} / {}  ·  {}: {}",
+                metin(dil, "Rezerve", "Reserved"),
+                insan_bayt(durum.rezerve),
+                insan_bayt(durum.toplam_butce),
+                metin(dil, "boş", "free"),
+                insan_bayt(durum.bos),
+            ))
+            .color(tok.renk.metin),
+        );
+        ui.add(
+            egui::ProgressBar::new(durum.doluluk())
+                .desired_width(360.0)
+                .show_percentage(),
+        );
+        ui.add_space(tok.bosluk.s);
+
+        // Rezervasyon / önbellek / bellek baskısı (MK-21/MK-22 canlı).
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button(metin(dil, "+32 MB rezerve et", "+32 MB reserve"))
+                .clicked()
+            {
+                match self.ork.rezerve_et(BellekBileseni::Subprocess, 32 * MB) {
+                    Ok(r) => self.demo_rez.push(r),
+                    Err(rapor) => {
+                        // MK-22: bütçe aşımı → ÇÖKME YOK; kullanıcı bilgilendirilir.
+                        self.toasts.ekle(ctx, Toast::hata(rapor.ne_oldu.clone()));
+                        self.son_olay = Some(rapor.neden);
+                    }
+                }
+            }
+            if ui
+                .button(metin(dil, "+32 MB önbellek", "+32 MB cache"))
+                .clicked()
+            {
+                match self.ork.onbellek_ekle(BellekBileseni::Render, 32 * MB) {
+                    Ok(c) => self.demo_cache.push(c),
+                    Err(rapor) => {
+                        self.toasts.ekle(ctx, Toast::hata(rapor.ne_oldu));
+                    }
+                }
+            }
+            if ui
+                .button(metin(
+                    dil,
+                    "Bellek baskısı (temizle)",
+                    "Memory pressure (clear)",
+                ))
+                .clicked()
+            {
+                let ozet = self.ork.bellek_baskisi();
+                self.demo_cache.retain(|c| c.canli());
+                self.toasts.ekle(
+                    ctx,
+                    Toast::bilgi(format!(
+                        "{}: {} ({} {})",
+                        metin(dil, "Önbellek boşaltıldı", "Cache evicted"),
+                        insan_bayt(ozet.bosaltilan_bayt),
+                        ozet.bosaltilan_adet,
+                        metin(dil, "öğe", "items"),
+                    )),
+                );
+            }
+            if ui.button(metin(dil, "Sıfırla", "Reset")).clicked() {
+                self.demo_rez.clear();
+                self.demo_cache.clear();
+            }
+        });
+        ui.add_space(tok.bosluk.s);
+
+        // Büyük dosya → bütçe diyaloğu (stream/iptal) + out-of-core akış demosu.
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button(metin(
+                    dil,
+                    "4 TB dosya aç (bütçe kontrolü)",
+                    "Open 4 TB file (budget check)",
+                ))
+                .clicked()
+            {
+                let dort_tb = 4 * 1024 * 1024 * MB; // 4 TB
+                if let ButceKarari::AkisOnerilir(teklif) =
+                    dosya_butce_kontrol(dort_tb, 3.0, &self.ork)
+                {
+                    self.butce_dialog = Some(ButceDialog::yeni(teklif));
+                }
+            }
+            if ui
+                .button(metin(dil, "8 MB veriyi akışla işle", "Stream-process 8 MB"))
+                .clicked()
+            {
+                // MK-09: 8 MB veri 256 KB pencerelerle işlenir; tepe rezervasyon = bir pencere.
+                let veri = vec![0u8; 8 * MB as usize];
+                let _ = match akisla_isle(
+                    &veri[..],
+                    AkisAyar::pencere(256 * 1024),
+                    &self.ork,
+                    BellekBileseni::VeriTabani,
+                    |_parca| {},
+                ) {
+                    Ok(ozet) => self.toasts.ekle(
+                        ctx,
+                        Toast::basari(format!(
+                            "{}: {} {} · {} {}",
+                            metin(dil, "Akış bitti", "Stream done"),
+                            ozet.parca_sayisi,
+                            metin(dil, "parça", "chunks"),
+                            metin(dil, "tepe", "peak"),
+                            insan_bayt(ozet.tepe_rezervasyon_bayt),
+                        )),
+                    ),
+                    Err(rapor) => self.toasts.ekle(ctx, Toast::hata(rapor.ne_oldu)),
+                };
+            }
+        });
+        ui.add_space(tok.bosluk.s);
+
+        // İşleme önceliği — mod değişince worker sayısı değişir (Zero-Impact mantığı mem'de test edilir).
+        let oncelik_ad = match (dil, self.oncelik) {
+            (Dil::Tr, OncelikModu::ArayuzOncelikli) => "Arayüz öncelikli",
+            (Dil::En, OncelikModu::ArayuzOncelikli) => "UI priority",
+            (Dil::Tr, OncelikModu::Denge) => "Denge",
+            (Dil::En, OncelikModu::Denge) => "Balanced",
+            (Dil::Tr, OncelikModu::MaksimumHesap) => "Maksimum hesap",
+            (Dil::En, OncelikModu::MaksimumHesap) => "Max compute",
+        };
+        let cekirdek = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        let plan = hesap_plani(
+            OncelikDurumu {
+                modu: self.oncelik,
+                kullanici_aktif: false,
+            },
+            cekirdek,
+        );
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{}: {}  ·  {} {} / {} {}",
+                    metin(dil, "İşleme önceliği", "Processing priority"),
+                    oncelik_ad,
+                    plan.worker_sayisi,
+                    metin(dil, "worker", "workers"),
+                    cekirdek,
+                    metin(dil, "çekirdek", "cores"),
+                ))
+                .color(tok.renk.metin),
+            );
+            if ui
+                .button(metin(dil, "Modu değiştir", "Change mode"))
+                .clicked()
+            {
+                self.oncelik = self.oncelik.dongu();
+            }
+        });
     }
 }
 

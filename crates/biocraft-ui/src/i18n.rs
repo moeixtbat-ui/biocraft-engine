@@ -61,6 +61,10 @@ pub enum Anahtar {
     GeriAlinamaz,
     // Büyük işlem tahmini
     TahminBasligi,
+    // Bellek bütçesi diyaloğu (İP-08)
+    ButceBasligi,
+    ButceAkisModu,
+    ButceBulut,
     // İş / ilerleme
     IsCalisiyor,
     IsBekliyor,
@@ -109,6 +113,9 @@ impl Anahtar {
         Anahtar::GeriAlinabilir,
         Anahtar::GeriAlinamaz,
         Anahtar::TahminBasligi,
+        Anahtar::ButceBasligi,
+        Anahtar::ButceAkisModu,
+        Anahtar::ButceBulut,
         Anahtar::IsCalisiyor,
         Anahtar::IsBekliyor,
         Anahtar::IsBitti,
@@ -177,6 +184,12 @@ pub fn ceviri(dil: Dil, anahtar: Anahtar) -> &'static str {
         (En, GeriAlinamaz) => "This action cannot be undone.",
         (Tr, TahminBasligi) => "Büyük işlem",
         (En, TahminBasligi) => "Large operation",
+        (Tr, ButceBasligi) => "Bellek bütçesi",
+        (En, ButceBasligi) => "Memory budget",
+        (Tr, ButceAkisModu) => "Akış modunda aç",
+        (En, ButceAkisModu) => "Open in stream mode",
+        (Tr, ButceBulut) => "Bulutta işle (yakında)",
+        (En, ButceBulut) => "Process in cloud (soon)",
         (Tr, IsCalisiyor) => "Çalışıyor…",
         (En, IsCalisiyor) => "Running…",
         (Tr, IsBekliyor) => "Sırada bekliyor…",
@@ -257,6 +270,23 @@ pub fn tahmin_metni(dil: Dil, sure: &str) -> String {
     match dil {
         Dil::Tr => format!("Bu işlem yaklaşık {sure} sürebilir. Devam edilsin mi?"),
         Dil::En => format!("This may take about {sure}. Do you want to continue?"),
+    }
+}
+
+/// Bellek bütçesi diyaloğunun açıklama metnini üretir (İP-08).
+/// `dosya`/`tahmini`/`bos`: önceden insan-okunur biçime çevrilmiş bayt dizgeleri.
+pub fn butce_metni(dil: Dil, dosya: &str, tahmini: &str, bos: &str) -> String {
+    match dil {
+        Dil::Tr => format!(
+            "Bu dosya diskte {dosya} yer kaplıyor; tamamını açmak tahminen {tahmini} bellek \
+             ister, ama şu an boşta yalnızca {bos} var. Tümünü belleğe almak yerine akış \
+             (stream) modunu öneriyoruz — dosya parça parça işlenir, çökme olmaz."
+        ),
+        Dil::En => format!(
+            "This file is {dosya} on disk; opening it fully would need about {tahmini} of \
+             memory, but only {bos} is free right now. Instead of loading it all, we recommend \
+             stream mode — the file is processed piece by piece, with no crash."
+        ),
     }
 }
 

@@ -12,6 +12,8 @@ biocraft-types  = { path = "../biocraft-types" }
 biocraft-sdk    = { path = "../biocraft-sdk" }
 biocraft-render = { path = "../biocraft-render" }
 biocraft-state  = { path = "../biocraft-state" }
+# İP-08: Bellek bütçesi diyaloğu + öncelik seçici + bellek göstergesi (L2 → aşağı bağımlılık).
+biocraft-mem    = { path = "../biocraft-mem" }
 
 # MK-01: UI = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
 # İP-16 bileşenleri saf egui ile yazılır; pencere/font yönetimi İP-04 (render host)

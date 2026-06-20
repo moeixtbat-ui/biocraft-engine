@@ -10,3 +10,5 @@ description = "BioCraft Engine — L2: Global Memory Orchestrator + Donanım Kor
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
+# MK-09: out-of-core mmap yolu (sürüm kökte workspace.dependencies'te sabit).
+memmap2        = { workspace = true }

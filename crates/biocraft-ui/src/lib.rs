@@ -18,6 +18,7 @@ pub mod tokens;
 // `biocraft_ui::egui` üzerinden erişebilir.
 pub use egui;
 
+pub use biocraft_mem;
 pub use biocraft_render;
 pub use biocraft_sdk;
 pub use biocraft_state;
@@ -25,8 +26,8 @@ pub use biocraft_types;
 
 // İP-16 bileşenlerini kök seviyede pratik erişim için yeniden dışa aktar.
 pub use components::{
-    ConfirmDialog, EmptyState, ErrorDialog, EstimateDialog, Gallery, IsIlerleme, Skeleton,
-    StatusBadge, Toast, ToastManager,
+    ButceDialog, ConfirmDialog, EmptyState, ErrorDialog, EstimateDialog, Gallery, IsIlerleme,
+    Skeleton, StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
 pub use plot::PlotWidget;

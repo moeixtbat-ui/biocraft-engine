@@ -8,6 +8,7 @@
 //! - standart egui widget'ları (buton/etiket) kullanır → klavye ve ekran okuyucu erişimi
 //!   (AccessKit) İP-04 pencere host'u tarafından otomatik sağlanır.
 
+pub mod butce_dialog;
 pub mod confirm;
 pub mod empty_state;
 pub mod error_dialog;
@@ -18,6 +19,7 @@ pub mod skeleton;
 pub mod status_badge;
 pub mod toast;
 
+pub use butce_dialog::ButceDialog;
 pub use confirm::{ConfirmDialog, OnayKarari};
 pub use empty_state::EmptyState;
 pub use error_dialog::{ErrorDialog, HataDiyalogEylem};
