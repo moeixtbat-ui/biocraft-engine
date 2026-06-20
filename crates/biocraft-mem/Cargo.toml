@@ -12,3 +12,5 @@ biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
 # MK-09: out-of-core mmap yolu (sürüm kökte workspace.dependencies'te sabit).
 memmap2        = { workspace = true }
+# MK-24/25/26: donanım izleme + disk boş alan + donanım profili (sürüm kökte sabit).
+sysinfo        = { workspace = true }

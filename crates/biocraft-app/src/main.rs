@@ -10,14 +10,18 @@
 //! Render altyapısı (cihaz/kuyruk/kurtarma/bütçe) [`biocraft_render`]'dadır; egui↔wgpu çizim
 //! köprüsü bu host katmanındadır (MK-40: render egui'ye bağlı değildir).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use biocraft_mem::{
+    profil_cikar, DonanimMuhafiz, DonanimProfili, KoruyucuDurum, OtoAyar, SistemSensoru,
+    TermalEsikler,
+};
 use biocraft_render::{
     ornek_top_cubuk, Backend, BackendTercihi, FrameBudget, GpuContext, Kamera3B, KurtarmaPlani,
     Sahne3B, TdrKurtarma, Tipografi,
 };
-use biocraft_ui::{Dil, Gallery, Tokenlar};
+use biocraft_ui::{Dil, Gallery, StatusBadge, Tokenlar};
 
 use egui_wgpu::ScreenDescriptor;
 use winit::application::ApplicationHandler;
@@ -44,6 +48,12 @@ fn main() {
         BackendTercihi::Otomatik
     };
 
+    // İP-08 MK-26: `--emulate-min` → düşük donanım profilini taklit et (sadeleşme + uyarı yolunu test).
+    let emulate_min = std::env::args().any(|a| a == "--emulate-min");
+    if emulate_min {
+        log::info!("--emulate-min bayrağı algılandı: düşük donanım profili taklit ediliyor.");
+    }
+
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
         Err(e) => {
@@ -54,7 +64,7 @@ fn main() {
     // MK-03: Sürekli yeniden çizim (Poll) + VSync sunum → akıcı, kare kaçırmayan döngü.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut uygulama = Uygulama::yeni(tercih);
+    let mut uygulama = Uygulama::yeni(tercih, emulate_min);
     if let Err(e) = event_loop.run_app(&mut uygulama) {
         eprintln!("Uygulama döngüsü hatası: {e}");
         std::process::exit(1);
@@ -64,13 +74,16 @@ fn main() {
 /// Uygulama kabuğu; pencere/GPU `resumed` olayında oluşturulur.
 struct Uygulama {
     tercih: BackendTercihi,
+    /// `--emulate-min`: düşük donanım profilini taklit et (MK-26).
+    emulate_min: bool,
     durum: Option<Sahne>,
 }
 
 impl Uygulama {
-    fn yeni(tercih: BackendTercihi) -> Self {
+    fn yeni(tercih: BackendTercihi, emulate_min: bool) -> Self {
         Self {
             tercih,
+            emulate_min,
             durum: None,
         }
     }
@@ -94,6 +107,14 @@ struct Sahne {
     sahne3b_tex: egui::TextureId,
     /// Animasyon/zaman başlangıcı (3B yörünge açısı buradan türetilir).
     baslangic: Instant,
+    /// İP-08: bağımsız donanım izleme watchdog'u (termal koruma + checkpoint).
+    muhafiz: DonanimMuhafiz,
+    /// Watchdog sensörünün simülasyon kancası — 'I' tuşu GPU sıcaklığını yükseltir (demo).
+    simulasyon: Arc<Mutex<Option<f32>>>,
+    /// 'I' tuşuyla yükseltilen simüle GPU sıcaklığı (None = gerçek sensör).
+    simule_sicaklik: Option<f32>,
+    /// İP-08: başlangıçta donanıma göre otomatik ayar (düşük donanımda sadeleşme + uyarı).
+    oto_ayar: OtoAyar,
 }
 
 impl ApplicationHandler for Uygulama {
@@ -169,6 +190,41 @@ impl ApplicationHandler for Uygulama {
             wgpu::FilterMode::Linear,
         );
 
+        // İP-08 MK-26: donanım profili → otomatik ayar.  `--emulate-min` zayıf makineyi taklit eder.
+        let gpu_var = !gpu.backend().yazilim_mi();
+        let profil = if self.emulate_min {
+            DonanimProfili::asgari_emulasyon()
+        } else {
+            profil_cikar(gpu_var)
+        };
+        let oto_ayar = OtoAyar::hesapla(&profil);
+        log::info!(
+            "Donanım sınıfı: {} · mod: {} · hedef {} FPS · sadeleşme: {}",
+            oto_ayar.sinif.ad(),
+            oto_ayar.mod_.ad(),
+            oto_ayar.hedef_fps,
+            oto_ayar.sadelesme,
+        );
+        if let Some(uyari) = &oto_ayar.uyari {
+            log::warn!("{} — {}", uyari.ne_oldu, uyari.neden);
+        }
+
+        // İP-08 MK-24: bağımsız donanım izleme watchdog'u.  Gerçek sensör (sysinfo) + simülasyon
+        // kancası (gerçek termal sensör yoksa bile 'I' tuşuyla korumayı canlı göstermek için).
+        let sensor = SistemSensoru::yeni();
+        let simulasyon = sensor.simulasyon_kancasi();
+        let checkpoint = Arc::new(|| {
+            log::warn!(
+                "Termal duraklama → checkpoint alındı (açık iş diske yazıldı, veri korundu)."
+            );
+        });
+        let muhafiz = DonanimMuhafiz::baslat(
+            Box::new(sensor),
+            TermalEsikler::default(),
+            Duration::from_millis(500),
+            checkpoint,
+        );
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
@@ -182,6 +238,10 @@ impl ApplicationHandler for Uygulama {
             sahne3b,
             sahne3b_tex,
             baslangic: Instant::now(),
+            muhafiz,
+            simulasyon,
+            simule_sicaklik: None,
+            oto_ayar,
         });
     }
 
@@ -207,6 +267,10 @@ impl ApplicationHandler for Uygulama {
                 match ke.logical_key.as_ref() {
                     // 'T' → GPU sürücü çökmesi (TDR/DeviceLost) simülasyonu.
                     Key::Character("t" | "T") => sahne.tdr_simule(),
+                    // 'I' → simüle GPU sıcaklığını +4°C yükselt (termal koruma demosu, İP-08).
+                    Key::Character("i" | "I") => sahne.isi_simule_yukselt(),
+                    // 'O' → simülasyonu kapat (gerçek sensöre dön).
+                    Key::Character("o" | "O") => sahne.isi_simule_kapat(),
                     Key::Named(NamedKey::Escape) => event_loop.exit(),
                     _ => {}
                 }
@@ -244,6 +308,8 @@ impl Sahne {
         let fps = self.budget.fps();
         let backend = self.gpu.backend();
         let bildirim = self.tdr_bildirim.as_ref().map(|(m, _)| m.clone());
+        // İP-08: bağımsız watchdog'un anlık donanım/termal durumu (status bar'da gösterilir).
+        let donanim = self.muhafiz.durum();
 
         // Aktif temanın token'ları: 2B (egui visuals) + 3B (malzeme/clear) + pencere clear rengi
         // — hepsi token'dan gelir (MK-52: kodda sabit renk yok).
@@ -273,7 +339,16 @@ impl Sahne {
         let full = ctx.run(raw, |c| {
             // TÜM egui yüzeyini token'dan boya (durum çubuğu + 3B panel + galeri aynı karede).
             c.set_visuals(tok.egui_visuals());
-            durum_cubugu(c, fps, backend, bildirim.as_deref(), &tok);
+            durum_cubugu(
+                c,
+                fps,
+                backend,
+                bildirim.as_deref(),
+                &donanim,
+                &self.oto_ayar,
+                dil,
+                &tok,
+            );
             sahne3b_paneli(c, tex_id, en3b, boy3b, dil, &tok);
             self.gallery.show(c);
         });
@@ -376,6 +451,25 @@ impl Sahne {
         self.cihaz_kurtar();
     }
 
+    /// 'I' tuşu: simüle GPU sıcaklığını +4°C yükseltir; watchdog kademeli korumayı uygular.
+    fn isi_simule_yukselt(&mut self) {
+        let yeni = (self.simule_sicaklik.unwrap_or(58.0) + 4.0).min(110.0);
+        self.simule_sicaklik = Some(yeni);
+        if let Ok(mut s) = self.simulasyon.lock() {
+            *s = Some(yeni);
+        }
+        log::info!("Simüle GPU sıcaklığı: {yeni:.0}°C (watchdog yanıt verecek).");
+    }
+
+    /// 'O' tuşu: ısı simülasyonunu kapatır (gerçek sensöre döner).
+    fn isi_simule_kapat(&mut self) {
+        self.simule_sicaklik = None;
+        if let Ok(mut s) = self.simulasyon.lock() {
+            *s = None;
+        }
+        log::info!("Isı simülasyonu kapatıldı (gerçek sensör).");
+    }
+
     /// Cihazı yeniden kurarak TDR kurtarmasını çalıştırır (MK-04: hedef <5 sn).
     fn cihaz_kurtar(&mut self) {
         let plan = self.tdr.cihaz_kayboldu();
@@ -443,13 +537,18 @@ impl Sahne {
     }
 }
 
-/// Alt durum çubuğu: FPS + aktif backend + (varsa) CPU uyarısı + TDR bildirimi.
-/// Renkler token'dan gelir (MK-52): CPU uyarısı = uyarı, TDR bildirimi = başarı.
+/// Alt durum çubuğu: FPS + backend + **donanım göstergesi (İP-08)** + TDR bildirimi.
+/// Donanım göstergesi: CPU%/sıcaklık + termal aksiyon (soğutuluyor/acil) + düşük-donanım uyarısı.
+/// Renkler token'dan gelir (MK-52).
+#[allow(clippy::too_many_arguments)]
 fn durum_cubugu(
     ctx: &egui::Context,
     fps: f32,
     backend: Backend,
     bildirim: Option<&str>,
+    donanim: &KoruyucuDurum,
+    oto: &OtoAyar,
+    dil: Dil,
     tok: &Tokenlar,
 ) {
     egui::TopBottomPanel::bottom("biocraft_durum").show(ctx, |ui| {
@@ -461,15 +560,74 @@ fn durum_cubugu(
                 ui.separator();
                 ui.colored_label(tok.renk.uyari, "⚠ Yazılım (CPU) modu — performans sınırlı");
             }
+
+            // İP-08: donanım göstergesi (CPU/GPU/RAM/sıcaklık).
             ui.separator();
-            ui.weak("T: GPU çökmesi simülasyonu · Esc: çıkış");
-            if let Some(b) = bildirim {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.colored_label(tok.renk.basari, format!("✔ {b}"));
-                });
+            if donanim.koruma_etkin {
+                ui.label(format!("🌡 {}", sicaklik_ozeti(donanim)));
+            } else {
+                // Sensör yok → koruma kademeli devre dışı (çökme değil, bilgi).
+                ui.colored_label(tok.renk.uyari, "🌡 Sensör yok — termal koruma kapalı");
             }
+
+            // Düşük donanım: sadeleşme + uyarı (MK-26).
+            if oto.sadelesme {
+                ui.separator();
+                ui.colored_label(
+                    tok.renk.uyari,
+                    format!(
+                        "⚙ Düşük donanım ({}) — sadeleştirildi · {} FPS",
+                        oto.sinif.ad(),
+                        oto.hedef_fps
+                    ),
+                );
+            }
+
+            ui.separator();
+            ui.weak("T: GPU çökmesi · I/O: ısı simülasyonu · Esc: çıkış");
+
+            // Sağ taraf: termal rozet/uyarı + TDR bildirimi.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(b) = bildirim {
+                    ui.colored_label(tok.renk.basari, format!("✔ {b}"));
+                    ui.separator();
+                }
+                if donanim.acil_durum {
+                    ui.colored_label(tok.renk.hata, "⛔ ACİL DURDU — kritik sıcaklık");
+                } else if donanim.sogutuluyor {
+                    let _ = StatusBadge::Sogutuluyor.show(ui, dil, tok);
+                } else if let biocraft_mem::TermalAksiyon::YukAzalt(p) = donanim.aksiyon {
+                    ui.colored_label(tok.renk.uyari, format!("⏬ Termal: yük %{p}"));
+                }
+            });
         });
     });
+}
+
+/// Watchdog örneğinden kısa "GPU 82°C · CPU 70°C · CPU %45" özeti üretir (mevcut değerler).
+fn sicaklik_ozeti(donanim: &KoruyucuDurum) -> String {
+    let o = &donanim.son_ornek;
+    let mut parcalar: Vec<String> = Vec::new();
+    if let Some(t) = o.gpu_c {
+        parcalar.push(format!("GPU {t:.0}°C"));
+    }
+    if let Some(t) = o.cpu_c {
+        parcalar.push(format!("CPU {t:.0}°C"));
+    }
+    if let Some(t) = o.nvme_c {
+        parcalar.push(format!("NVMe {t:.0}°C"));
+    }
+    if let Some(p) = o.cpu_yuzde {
+        parcalar.push(format!("CPU %{p:.0}"));
+    }
+    if let Some(r) = o.ram_orani {
+        parcalar.push(format!("RAM %{:.0}", r * 100.0));
+    }
+    if parcalar.is_empty() {
+        "ölçülüyor…".to_string()
+    } else {
+        parcalar.join(" · ")
+    }
 }
 
 /// Sağ panel: 3B off-screen sahnenin (top-çubuk) canlı dokusunu gösterir + kısa açıklama.

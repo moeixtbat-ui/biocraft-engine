@@ -49,3 +49,6 @@ serde_json = "1"
 bytemuck   = { version = "1", features = ["derive"] }
 # MK-09: out-of-core — büyük dosyaları bellek-eşlemeli (mmap) pencere pencere işleme.
 memmap2    = "0.9"
+# MK-24/25/26: donanım izleme (CPU/RAM/sıcaklık) + disk boş alan + donanım profili.
+# NVML (NVIDIA GPU) gerçek entegrasyonu insan-eli/sürücü işidir → MVP'de kanca (bkz. hardware_guard).
+sysinfo    = { version = "0.33", default-features = false, features = ["system", "disk", "component"] }
