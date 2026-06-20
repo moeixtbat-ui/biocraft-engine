@@ -37,7 +37,18 @@ allow = [
     "MPL-2.0",
     "BSL-1.0",
     "OpenSSL",
+    # SIL Open Font License — egui'nin gömülü varsayılan fontları (epaint_default_fonts).
+    # Yeniden dağıtıma izin veren, yaygın ve güvenli açık font lisansı.
+    "OFL-1.1",
 ]
+
+# Crate'e özel lisans muafiyeti.
+# epaint_default_fonts, Ubuntu fontunu içerir; bunun lisansı (UFL-1.0) SPDX-dışı bir
+# "LicenseRef" olduğundan global listeye konamaz, yalnızca bu crate için muaf tutulur.
+# UFL-1.0 da yeniden dağıtıma izin veren açık bir font lisansıdır.
+[[licenses.exceptions]]
+name = "epaint_default_fonts"
+allow = ["OFL-1.1", "LicenseRef-UFL-1.0"]
 
 # ─── Yasaklı / tekrarlanan crate'ler ─────────────────────────────────────────
 [bans]

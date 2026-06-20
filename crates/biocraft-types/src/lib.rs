@@ -188,6 +188,101 @@ impl std::fmt::Debug for Blake3Hash {
     }
 }
 
+// ─── Korelasyon kimliği ──────────────────────────────────────────────────────
+
+/// Bir hata/iş olayını **loglar** ile **kullanıcıya gösterilen diyalog** arasında
+/// eşleştiren benzersiz kimlik (İP-16).
+///
+/// Kullanıcı destek isterken bu kimliği iletir; geliştirici aynı kimliği loglarda
+/// arayıp olayı birebir bulur.  Böylece "kriptik kod" yerine izlenebilir bir kimlik gösterilir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CorrelationId(pub Uuid);
+
+impl CorrelationId {
+    /// Yeni rastgele bir korelasyon kimliği üretir.
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Kısa, okunaklı biçim (ilk 8 hex karakter) — dar alanlarda gösterim için.
+    pub fn kisa(&self) -> String {
+        self.0.simple().to_string()[..8].to_string()
+    }
+}
+
+impl Default for CorrelationId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for CorrelationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// ─── Standart hata şeması (İP-16) ────────────────────────────────────────────
+
+/// Kullanıcıya gösterilen **her** hatanın uyması gereken STANDART şema
+/// (İP-16, CLAUDE.md §3, TDA madde 4).
+///
+/// Üç alan (`ne_oldu`, `neden`, `nasil_cozulur`) ZORUNLUDUR: `new` bunları ister.
+/// Bu sayede tip sistemi "ne/neden/çözüm" şablonunu **derleme zamanında zorlar** —
+/// eksik veya kriptik bir hata mesajı üretmek imkânsızdır.  Teknik detay ve eylem
+/// butonu opsiyoneldir; her rapor otomatik bir `correlation_id` taşır.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorReport {
+    /// Ne oldu? — kullanıcının anlayacağı sade dille, tek cümlelik özet.
+    pub ne_oldu: String,
+    /// Neden? — kök sebep; teknik olmayan dille açıklama.
+    pub neden: String,
+    /// Nasıl çözülür? — kullanıcının atabileceği somut adım (eylem/buton metni ile eşleşebilir).
+    pub nasil_cozulur: String,
+    /// Çözüm için opsiyonel eylem butonunun etiketi (örn. "Tekrar dene", "Klasörü seç").
+    pub eylem_etiketi: Option<String>,
+    /// Katlanır teknik detay (yığın izi, hata kodu) — varsayılan gizli; meraklı/destek için.
+    pub teknik_detay: Option<String>,
+    /// Logları diyalogla eşleştiren korelasyon kimliği.
+    pub correlation_id: CorrelationId,
+}
+
+impl ErrorReport {
+    /// Zorunlu üç alanla yeni bir hata raporu kurar; `correlation_id` otomatik üretilir.
+    pub fn new(
+        ne_oldu: impl Into<String>,
+        neden: impl Into<String>,
+        nasil_cozulur: impl Into<String>,
+    ) -> Self {
+        Self {
+            ne_oldu: ne_oldu.into(),
+            neden: neden.into(),
+            nasil_cozulur: nasil_cozulur.into(),
+            eylem_etiketi: None,
+            teknik_detay: None,
+            correlation_id: CorrelationId::new(),
+        }
+    }
+
+    /// Çözüm eylemi için bir buton etiketi ekler.
+    pub fn with_eylem(mut self, etiket: impl Into<String>) -> Self {
+        self.eylem_etiketi = Some(etiket.into());
+        self
+    }
+
+    /// Katlanır teknik detay ekler.
+    pub fn with_teknik_detay(mut self, detay: impl Into<String>) -> Self {
+        self.teknik_detay = Some(detay.into());
+        self
+    }
+
+    /// Var olan bir korelasyon kimliğini (ör. logdan) bu rapora bağlar.
+    pub fn with_correlation_id(mut self, id: CorrelationId) -> Self {
+        self.correlation_id = id;
+        self
+    }
+}
+
 // ─── Testler ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -348,5 +443,62 @@ mod tests {
         let json = serde_json::to_string(&h).unwrap();
         let geri: Blake3Hash = serde_json::from_str(&json).unwrap();
         assert_eq!(h, geri);
+    }
+
+    // --- CorrelationId ---
+
+    #[test]
+    fn correlation_id_new_benzersiz_olmali() {
+        let a = CorrelationId::new();
+        let b = CorrelationId::new();
+        assert_ne!(a, b, "Her hata olayı ayrı bir korelasyon kimliği almalı");
+    }
+
+    #[test]
+    fn correlation_id_kisa_8_karakter_olmali() {
+        let id = CorrelationId::new();
+        assert_eq!(id.kisa().len(), 8);
+    }
+
+    // --- ErrorReport ---
+
+    #[test]
+    fn error_report_zorunlu_uc_alan_dolu_olmali() {
+        // "ne/neden/çözüm" şablonu: üç alan da new ile zorunlu girilir.
+        let r = ErrorReport::new(
+            "Dosya açılamadı",
+            "Dosya başka bir program tarafından kilitli",
+            "Programı kapatıp tekrar deneyin",
+        );
+        assert!(!r.ne_oldu.is_empty());
+        assert!(!r.neden.is_empty());
+        assert!(!r.nasil_cozulur.is_empty());
+        // Opsiyoneller varsayılan boş; correlation_id otomatik üretilmiş.
+        assert!(r.eylem_etiketi.is_none());
+        assert!(r.teknik_detay.is_none());
+    }
+
+    #[test]
+    fn error_report_builder_opsiyonelleri_ekleyebilmeli() {
+        let r = ErrorReport::new("ne", "neden", "çözüm")
+            .with_eylem("Tekrar dene")
+            .with_teknik_detay("ENOENT: no such file");
+        assert_eq!(r.eylem_etiketi.as_deref(), Some("Tekrar dene"));
+        assert_eq!(r.teknik_detay.as_deref(), Some("ENOENT: no such file"));
+    }
+
+    #[test]
+    fn error_report_correlation_id_baglanabilmeli() {
+        let id = CorrelationId::new();
+        let r = ErrorReport::new("a", "b", "c").with_correlation_id(id);
+        assert_eq!(r.correlation_id, id);
+    }
+
+    #[test]
+    fn error_report_serde_gidis_donus() {
+        let r = ErrorReport::new("a", "b", "c").with_teknik_detay("x");
+        let json = serde_json::to_string(&r).unwrap();
+        let geri: ErrorReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(r, geri);
     }
 }

@@ -12,3 +12,8 @@ biocraft-types  = { path = "../biocraft-types" }
 biocraft-sdk    = { path = "../biocraft-sdk" }
 biocraft-render = { path = "../biocraft-render" }
 biocraft-state  = { path = "../biocraft-state" }
+
+# MK-01: UI = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
+# İP-16 bileşenleri saf egui ile yazılır; pencere/font yönetimi İP-04 (render host)
+# tarafından sağlanır — bu yüzden burada yalnızca egui'ye bağlanırız.
+egui = "0.29"
