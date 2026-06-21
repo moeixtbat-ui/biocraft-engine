@@ -19,6 +19,8 @@ biocraft-ui     = { path = "../biocraft-ui" }
 biocraft-mem    = { path = "../biocraft-mem" }
 # İP-11: self-healing durum altyapısı — kalıcı durum + otomatik kayıt + çökme kurtarma (L5→L2).
 biocraft-state  = { path = "../biocraft-state" }
+# İP-01: açılış istemcisi (launcher) — son projeler, haber akışı, donanım ön-kontrol (L5→L4).
+biocraft-launcher = { path = "../biocraft-launcher" }
 
 # MK-01: pencere + egui↔wgpu köprüsü host katmanındadır (render egui'ye bağlı değil).
 winit      = { workspace = true }

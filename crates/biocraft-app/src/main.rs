@@ -17,6 +17,12 @@ use std::time::{Duration, Instant};
 use biocraft_mem::{
     profil_cikar, DonanimMuhafiz, DonanimProfili, OtoAyar, SistemSensoru, TermalEsikler,
 };
+// İP-01: açılış istemcisi (Epic-benzeri launcher) — son projeler, haber, donanım ön-kontrol, splash.
+use biocraft_launcher::{
+    haber_onbellek_kaydet, haber_onbellek_yukle, son_projeleri_kaydet, son_projeleri_yukle,
+    DonanimDegerlendirme, HaberYukleyici, LauncherDurumu, LauncherEylem, ReferansDonanim,
+    SplashDurumu, YerelKaynak,
+};
 use biocraft_render::{
     ornek_top_cubuk, BackendTercihi, FrameBudget, GpuContext, Kamera3B, KurtarmaPlani, Sahne3B,
     TdrKurtarma, Tipografi,
@@ -70,6 +76,19 @@ fn main() {
         log::info!("--emulate-min bayrağı algılandı: düşük donanım profili taklit ediliyor.");
     }
 
+    // İP-01: launcher bayrakları.
+    //   --no-splash    → açılış splash ekranını atla (E8).
+    //   --skip-launcher → launcher'ı atlayıp doğrudan motor kabuğunu aç (eski/geliştirici akışı).
+    //   --seed-recent  → son projeler listesine örnek girdiler ekle (UI'ı canlı görmek için demo).
+    let no_splash = std::env::args().any(|a| a == "--no-splash");
+    let skip_launcher = std::env::args().any(|a| a == "--skip-launcher");
+    let seed_recent = std::env::args().any(|a| a == "--seed-recent");
+    let launcher_acilis = LauncherAcilis {
+        no_splash,
+        skip_launcher,
+        seed_recent,
+    };
+
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
         Err(e) => {
@@ -80,11 +99,41 @@ fn main() {
     // MK-03: Sürekli yeniden çizim (Poll) + VSync sunum → akıcı, kare kaçırmayan döngü.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut uygulama = Uygulama::yeni(tercih, emulate_min);
+    let mut uygulama = Uygulama::yeni(tercih, emulate_min, launcher_acilis);
     if let Err(e) = event_loop.run_app(&mut uygulama) {
         eprintln!("Uygulama döngüsü hatası: {e}");
         std::process::exit(1);
     }
+}
+
+/// İP-01: launcher açılış bayrakları (main → Uygulama'ya taşınır).
+#[derive(Debug, Clone, Copy)]
+struct LauncherAcilis {
+    /// `--no-splash`: açılış splash ekranını atla (E8).
+    no_splash: bool,
+    /// `--skip-launcher`: launcher'ı atla, doğrudan motora geç.
+    skip_launcher: bool,
+    /// `--seed-recent`: son projeler listesine demo girdileri ekle.
+    seed_recent: bool,
+}
+
+/// Uygulamanın hangi yüzeyi gösterdiği: açılış istemcisi (launcher) ya da motor kabuğu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppMod {
+    /// İP-01: Epic-benzeri açılış istemcisi (son projeler/haber/donanım).
+    Acilis,
+    /// İP-03+: motor kabuğu (editör/paneller).
+    Motor,
+}
+
+/// İP-01: bir launcher karesinin sonucu (ana döngü buna göre davranır).
+enum AcilisSonuc {
+    /// Launcher'da kal.
+    Devam,
+    /// Motor kabuğuna geç.
+    MotoraGec,
+    /// Uygulamayı kapat.
+    Cikis,
 }
 
 /// Uygulama kabuğu; pencere/GPU `resumed` olayında oluşturulur.
@@ -92,6 +141,8 @@ struct Uygulama {
     tercih: BackendTercihi,
     /// `--emulate-min`: düşük donanım profilini taklit et (MK-26).
     emulate_min: bool,
+    /// İP-01: launcher açılış bayrakları (--no-splash / --skip-launcher / --seed-recent).
+    launcher_acilis: LauncherAcilis,
     durum: Option<Sahne>,
     /// İP-11: self-healing durum yöneticisi (kalıcı durum + otomatik kayıt + kurtarma).
     yonetici: DurumYoneticisi,
@@ -100,7 +151,7 @@ struct Uygulama {
 }
 
 impl Uygulama {
-    fn yeni(tercih: BackendTercihi, emulate_min: bool) -> Self {
+    fn yeni(tercih: BackendTercihi, emulate_min: bool, launcher_acilis: LauncherAcilis) -> Self {
         // İP-11/MK-38: kalıcı durumu disk üzerinde (kullanıcı veri klasörü) tut.
         let dizin = durum_dizini();
         log::info!("Durum klasörü: {}", dizin.display());
@@ -114,6 +165,7 @@ impl Uygulama {
         Self {
             tercih,
             emulate_min,
+            launcher_acilis,
             durum: None,
             yonetici,
             kurtarma_karari,
@@ -272,6 +324,13 @@ struct Sahne {
     detach_toggle_istendi: bool,
     /// Backend tercihi (detach penceresinin GPU bağlamını ana pencereyle aynı kurmak için).
     tercih: BackendTercihi,
+    // ── İP-01: açılış istemcisi (launcher) ──
+    /// Şu an launcher mı yoksa motor kabuğu mu gösteriliyor.
+    app_mod: AppMod,
+    /// Launcher görünüm + etkileşim durumu (son projeler/haber/donanım/splash).
+    launcher: LauncherDurumu,
+    /// Launcher'ın kalıcı dosyaları (son projeler + haber önbelleği) için atomik depo.
+    launcher_depo: DosyaDepo,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -503,6 +562,31 @@ impl ApplicationHandler for Uygulama {
             checkpoint,
         );
 
+        // ── İP-01: launcher durumunu kur ──────────────────────────────────────
+        // Aynı durum klasöründe ayrı bir atomik depo (son projeler + haber önbelleği).
+        let launcher_depo = DosyaDepo::yeni(durum_dizini());
+        let mut son_projeler = son_projeleri_yukle(&launcher_depo);
+        if self.launcher_acilis.seed_recent {
+            launcher_demo_tohumla(&mut son_projeler);
+        }
+        // Çevrimdışı ilk gösterim için önbellek; ardından arka planda taze çekme başlatılır.
+        let haber_onbellek = haber_onbellek_yukle(&launcher_depo);
+        let mut haber = HaberYukleyici::yeni(haber_onbellek);
+        // Asenkron çekme (ayrı thread; arayüzü bloklamaz).  ~0.9 sn taklit gecikmesi → iskelet görünür.
+        haber.baslat(YerelKaynak::yeni(Duration::from_millis(900), simdi()));
+        // Donanım ön-kontrolü: İP-08'de çıkarılan profili yeniden kullan (kod tekrarı yok — MK-05).
+        let donanim = DonanimDegerlendirme::degerlendir(profil, ReferansDonanim::default());
+        if donanim.referans_alti {
+            log::warn!("Donanım referans tabanının altında — launcher yetenek matrisi gösterilecek (MK-05).");
+        }
+        let splash = SplashDurumu::yeni(Instant::now(), self.launcher_acilis.no_splash);
+        let launcher = LauncherDurumu::yeni(son_projeler, haber, donanim, splash);
+        let app_mod = if self.launcher_acilis.skip_launcher {
+            AppMod::Motor
+        } else {
+            AppMod::Acilis
+        };
+
         // Galeri geri yüklenen görünüm (tema) + dil ile başlar (MK-38: oturumlar arası kalıcı).
         let mut gallery = Gallery::new();
         gallery.tema = tema_ui(kayitli_tema);
@@ -556,6 +640,9 @@ impl ApplicationHandler for Uygulama {
             detach: None,
             detach_toggle_istendi: false,
             tercih: self.tercih,
+            app_mod,
+            launcher,
+            launcher_depo,
         });
     }
 
@@ -603,18 +690,36 @@ impl ApplicationHandler for Uygulama {
                     _ => {}
                 }
             }
-            // İP-03: kareyi çiz; menüden "Çıkış" seçildiyse temiz kapat + döngüyü kapat.
+            // İP-01/İP-03: kareyi çiz.  Açılışta launcher; eylemle motora geçilir.
             WindowEvent::RedrawRequested => {
-                let cikis = sahne.ciz(&mut self.yonetici);
-                if cikis {
-                    temiz_kapat_yap(&mut self.yonetici);
-                    event_loop.exit();
-                    return;
-                }
-                // İP-03: Inspector ayır/geri-tak istendiyse ayrı pencereyi oluştur/kapat.
-                if sahne.detach_toggle_istendi {
-                    sahne.detach_toggle_istendi = false;
-                    sahne.detach_toggle(event_loop);
+                if sahne.app_mod == AppMod::Acilis {
+                    // İP-01: launcher karesi → motora geç / kapat / launcher'da kal.
+                    match sahne.ciz_acilis() {
+                        AcilisSonuc::Devam => {}
+                        AcilisSonuc::Cikis => {
+                            temiz_kapat_yap(&mut self.yonetici);
+                            event_loop.exit();
+                            return;
+                        }
+                        AcilisSonuc::MotoraGec => {
+                            log::info!("Launcher → motor kabuğuna geçildi.");
+                            sahne.app_mod = AppMod::Motor;
+                            sahne.pencere.request_redraw();
+                        }
+                    }
+                } else {
+                    // İP-03: menüden "Çıkış" seçildiyse temiz kapat + döngüyü kapat.
+                    let cikis = sahne.ciz(&mut self.yonetici);
+                    if cikis {
+                        temiz_kapat_yap(&mut self.yonetici);
+                        event_loop.exit();
+                        return;
+                    }
+                    // İP-03: Inspector ayır/geri-tak istendiyse ayrı pencereyi oluştur/kapat.
+                    if sahne.detach_toggle_istendi {
+                        sahne.detach_toggle_istendi = false;
+                        sahne.detach_toggle(event_loop);
+                    }
                 }
             }
             _ => {}
@@ -902,6 +1007,15 @@ impl Sahne {
             cikis_istendi = self.kabuk_aksiyon_uygula(a);
         }
 
+        self.kareyi_sun(full, zemin_lin, kare_basi);
+        cikis_istendi
+    }
+
+    /// egui çıktısını wgpu ile ekrana sunar (tessellate → render pass → present) + kare kaydı.
+    ///
+    /// `ciz` (motor kabuğu) ve `ciz_acilis` (launcher) ortak kullanır → GPU sunum kodu tek yerde.
+    /// Yüzey kayıpsa zarifçe tazeler / bellek biterse cihazı kurtarır (MK-04); kareyi atlar.
+    fn kareyi_sun(&mut self, full: egui::FullOutput, zemin_lin: [f32; 4], kare_basi: Instant) {
         self.egui_state
             .handle_platform_output(self.pencere.as_ref(), full.platform_output);
         let jobs = self.egui_ctx.tessellate(full.shapes, full.pixels_per_point);
@@ -916,12 +1030,12 @@ impl Sahne {
             Err(wgpu::SurfaceError::OutOfMemory) => {
                 log::error!("Yüzey belleği tükendi → cihaz kurtarma deneniyor.");
                 self.cihaz_kurtar();
-                return cikis_istendi;
+                return;
             }
             Err(hata) => {
                 log::debug!("Yüzey hatası ({hata:?}) → tazeleniyor, kare atlanıyor.");
                 self.gpu.yuzey_tazele();
-                return cikis_istendi;
+                return;
             }
         };
         let view = cikis
@@ -992,7 +1106,124 @@ impl Sahne {
         } else {
             self.budget.bosta();
         }
-        cikis_istendi
+    }
+
+    /// İP-01: launcher karesini çizer + asenkron haberi yoklar + eylemi uygular.
+    ///
+    /// Arayüz **asla bloklanmaz**: haber kanalı her karede `try_recv` ile yoklanır (gelmemişse
+    /// iskelet çizilir, gelince dolar).  Splash görünürken yalnızca splash çizilir (E8).
+    fn ciz_acilis(&mut self) -> AcilisSonuc {
+        let kare_basi = Instant::now();
+        let simdi_inst = Instant::now();
+
+        // 1) Asenkron haberi yokla (bloklamaz).  Taze geldiyse önbelleğe yaz (çevrimdışı için).
+        if self.launcher.haber.yokla() {
+            if let Some(akis) = self.launcher.haber.durum().akis() {
+                if let Err(e) = haber_onbellek_kaydet(&self.launcher_depo, akis) {
+                    log::warn!(
+                        "Haber önbelleği yazılamadı: {} [{}]",
+                        e.neden,
+                        e.correlation_id.kisa()
+                    );
+                }
+            }
+        }
+        // "Tekrar Dene" istendiyse yeni bir çekme başlat.
+        if self.launcher.haber_tekrar_istendi {
+            self.launcher.haber_tekrar_istendi = false;
+            self.launcher
+                .haber
+                .baslat(YerelKaynak::yeni(Duration::from_millis(600), simdi()));
+        }
+
+        // 2) Kareyi çiz (token aktif temadan; egui yüzeyi token'dan — MK-52).
+        let tok = self.gallery.aktif_tokenlar();
+        let zemin_lin = egui::Rgba::from(tok.renk.zemin).to_array();
+        let dil = self.gallery.dil;
+        let raw = self.egui_state.take_egui_input(self.pencere.as_ref());
+        let ctx = self.egui_ctx.clone();
+        let mut eylem: Option<LauncherEylem> = None;
+        let full = ctx.run(raw, |c| {
+            c.set_visuals(tok.egui_visuals());
+            eylem = self.launcher.ciz(c, dil, &tok, simdi_inst);
+        });
+
+        // 3) Son projeler listesi değiştiyse (pin/kaldır) kalıcı depoya yaz.
+        if self.launcher.recent_kirli {
+            self.launcher.recent_kirli = false;
+            if let Err(e) = son_projeleri_kaydet(&self.launcher_depo, &self.launcher.recent) {
+                log::warn!(
+                    "Son projeler yazılamadı: {} [{}]",
+                    e.neden,
+                    e.correlation_id.kisa()
+                );
+            }
+        }
+
+        self.kareyi_sun(full, zemin_lin, kare_basi);
+        // Haber/splash animasyonu için sürekli yeniden çiz (arayüz canlı, donmaz).
+        self.pencere.request_redraw();
+
+        // 4) Kullanıcı eylemini uygula.
+        self.launcher_eylem_uygula(eylem)
+    }
+
+    /// İP-01: launcher eylemini uygular; uygulamanın bir sonraki durumunu döndürür.
+    fn launcher_eylem_uygula(&mut self, eylem: Option<LauncherEylem>) -> AcilisSonuc {
+        let Some(eylem) = eylem else {
+            return AcilisSonuc::Devam;
+        };
+        match eylem {
+            LauncherEylem::Cikis => AcilisSonuc::Cikis,
+            LauncherEylem::ProjeyiBaslat(args) => {
+                // Son projeyi "açıldı" olarak işaretle (öne taşı + damga güncelle) ve kaydet.
+                if let Some(yol) = &args.proje_yolu {
+                    let ad = yol
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "Proje".to_string());
+                    self.launcher.recent.acildi(yol.clone(), ad, simdi());
+                    let _ = son_projeleri_kaydet(&self.launcher_depo, &self.launcher.recent);
+                }
+                log::info!("Motor başlatma argümanları: {:?}", args.argv());
+                AcilisSonuc::MotoraGec
+            }
+            // İP-02 proje sihirbazı/dosya seçici sonra; MVP'de doğrudan motor kabuğuna geçilir.
+            LauncherEylem::YeniProje => {
+                log::info!("Yeni Proje (İP-02 sihirbazı sonra) → motor kabuğu açılıyor.");
+                AcilisSonuc::MotoraGec
+            }
+            LauncherEylem::ProjeAc => {
+                log::info!("Proje Aç (dosya seçici İP-02) → motor kabuğu açılıyor.");
+                AcilisSonuc::MotoraGec
+            }
+            LauncherEylem::YenidenBagla(eski) => {
+                // Gerçek dosya seçici İP-02/`rfd` ince adaptörüyle gelir; şimdilik bilgilendir.
+                log::info!(
+                    "Taşınmış proje yeniden bağlanacak: {} (dosya seçici İP-02).",
+                    eski.display()
+                );
+                AcilisSonuc::Devam
+            }
+            LauncherEylem::Ayarlar => {
+                log::info!("Ayarlar (İP-12) sonra gelecek.");
+                AcilisSonuc::Devam
+            }
+            LauncherEylem::Yardim => {
+                log::info!("Yardım/Dokümanlar.");
+                AcilisSonuc::Devam
+            }
+            LauncherEylem::EgitimiBaslat => {
+                log::info!("Eğitim/onboarding modu (İP-17) sonra gelecek.");
+                AcilisSonuc::Devam
+            }
+            LauncherEylem::DisBaglantiAc(url) => {
+                // Kullanıcı onayladı (view onay diyaloğunu gösterdi).  Gerçek tarayıcı açma
+                // platforma-özel ince bir adaptördür (İP-15/İP-18); MVP'de URL günlüğe yazılır.
+                log::info!("Dış bağlantı (kullanıcı onayladı): {url}");
+                AcilisSonuc::Devam
+            }
+        }
     }
 
     /// İP-03: bir kabuk aksiyonunu (menü/hızlı eylem) uygular.  Dönüş: **Çıkış** seçildiyse `true`.
@@ -2055,6 +2286,37 @@ fn durum_dizini() -> PathBuf {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
         .unwrap_or_else(std::env::temp_dir);
     taban.join("BioCraftEngine").join("state")
+}
+
+/// İP-01 (`--seed-recent`): son projeler listesine **demo** girdileri ekler.
+///
+/// Gerçek projeler İP-02 (proje sihirbazı) ile oluşturulur; bu yalnızca launcher'ın son-projeler
+/// yüzeyini (pin/arama/açma + taşınmış-proje "yeniden bağla") gerçek veri olmadan canlı görmek
+/// içindir.  Bir girdi **var olan** bir klasöre (Mevcut), bir girdi **olmayan** bir yola (taşınmış →
+/// "yeniden bağla") işaret eder; böylece her iki durum da görünür.
+fn launcher_demo_tohumla(liste: &mut biocraft_launcher::SonProjelerListesi) {
+    if !liste.bos_mu() {
+        return; // kullanıcının gerçek listesi varsa demo ekleme.
+    }
+    let mevcut = durum_dizini(); // bu klasör açılışta var → "Mevcut" görünür.
+    liste.acildi(
+        mevcut.join("ornek-insan-genomu.bcproj"),
+        "İnsan Genomu (demo)",
+        simdi(),
+    );
+    liste.acildi(
+        mevcut.join("ornek-protein-katlanma.bcproj"),
+        "Protein Katlanma (demo)",
+        simdi(),
+    );
+    // Var olmayan yol → taşınmış proje akışı ("yeniden bağla") canlı görünür (madde 19).
+    liste.acildi(
+        PathBuf::from("/eski/tasinmis/biyobank-2025.bcproj"),
+        "BiyoBank 2025 (taşındı)",
+        simdi(),
+    );
+    // İlk girdiyi sabitle (pin) → sıralama/pin yüzeyi görünür.
+    liste.sabit_degistir(&mevcut.join("ornek-insan-genomu.bcproj"));
 }
 
 /// Kalıcı tema seçimini UI temasına eşler (L2 nötr enum → L4 `Tema`).

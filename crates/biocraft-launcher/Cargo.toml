@@ -4,10 +4,17 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
-description = "BioCraft Engine — L4: Açılış istemcisi (son projeler, haber akışı, donanım ön-kontrol — İP-01, MK-40)"
+description = "BioCraft Engine — L4: Açılış istemcisi (son projeler, haber akışı, donanım ön-kontrol, splash — İP-01, MK-40)"
 
-# MK-40: L4 — yalnızca L0/L1/L2/L3 katmanlarına bağlı; üst katmanlara bağlantı yasak.
+# MK-40: L4 — yalnızca L0/L1/L2/L3 ve aynı katmana (L4) bağlanabilir; üst katman (L5) yasak.
+# biocraft-ui (L4) aynı katmandadır: launcher onun ortak TDA bileşenlerini/token'larını/i18n'ini
+# yeniden kullanır (MK-53 "bir kez yaz, her yerde kullan").  ui launcher'a bağlı değil → döngü yok.
 [dependencies]
 biocraft-types  = { path = "../biocraft-types" }
-biocraft-sdk    = { path = "../biocraft-sdk" }
-biocraft-render = { path = "../biocraft-render" }
+biocraft-ui     = { path = "../biocraft-ui" }
+
+# İP-01: son projeler + haber önbelleği serileştirme; tarih damgaları.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
+log        = { workspace = true }
