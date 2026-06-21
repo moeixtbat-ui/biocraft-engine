@@ -39,6 +39,10 @@ pub const SCRIPTS_DIZIN: &str = "scripts";
 pub const PROVENANS_DIZIN: &str = "provenance";
 /// Provenance olay günlüğü (append-only JSONL; `provenance` altında).
 pub const PROVENANS_DOSYA: &str = "olaylar.jsonl";
+/// Per-veri köken (kaynak/sürüm/lisans/atıf) günlüğü (append-only JSONL; İP-10).
+pub const KOKEN_DOSYA: &str = "koken.jsonl";
+/// Dış-gönderim onay defteri (append-only JSONL; her dış gönderim şeffaflık için kaydedilir; İP-10).
+pub const ONAY_DOSYA: &str = "onaylar.jsonl";
 
 /// Oluşturulması gereken alt klasörler (sıra sabit; iç içe yollar dahil).
 pub const ALT_DIZINLER: &[&str] = &[
@@ -84,6 +88,16 @@ pub fn butunluk_yolu(kok: &Path) -> PathBuf {
 /// Provenance günlüğünün tam yolu.
 pub fn provenans_yolu(kok: &Path) -> PathBuf {
     alt_yol(kok, &[PROVENANS_DIZIN, PROVENANS_DOSYA])
+}
+
+/// Per-veri köken günlüğünün tam yolu (İP-10; kaynak/sürüm/lisans/atıf).
+pub fn koken_yolu(kok: &Path) -> PathBuf {
+    alt_yol(kok, &[PROVENANS_DIZIN, KOKEN_DOSYA])
+}
+
+/// Dış-gönderim onay defterinin tam yolu (İP-10; şeffaflık/denetim izi).
+pub fn onay_yolu(kok: &Path) -> PathBuf {
+    alt_yol(kok, &[PROVENANS_DIZIN, ONAY_DOSYA])
 }
 
 /// Proje kökünü ve tüm alt klasörlerini oluşturur (iskele).

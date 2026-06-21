@@ -35,7 +35,7 @@ fn main() {
     let kurulan = project::olustur(&girdi).expect("kurulum başarısız");
     println!("[1] Proje oluşturuldu → {}", kurulan.kok.display());
     println!("    Klasör yapısı:");
-    yazdir_agac(&kurulan.kok, &kurulan.kok, 2);
+    yazdir_agac(&kurulan.kok, 2);
     println!();
 
     // ── 2) Açılış + bütünlük denetimi ───────────────────────────────────────
@@ -50,7 +50,11 @@ fn main() {
     println!(
         "    Manifest: ORCID={:?}, şifreli={}",
         acilan.manifest.olusturan.orcid,
-        acilan.manifest.guvenlik.map(|g| g.sifreleme).unwrap_or(false),
+        acilan
+            .manifest
+            .guvenlik
+            .map(|g| g.sifreleme)
+            .unwrap_or(false),
     );
     println!();
 
@@ -72,7 +76,11 @@ fn main() {
     println!();
 
     // ── 4) .bcproj dışa aktarımı (hassas ayar hariç) ────────────────────────
-    fs::write(kurulan.kok.join("data/inputs/notlar.txt"), b"kucuk ornek veri").unwrap();
+    fs::write(
+        kurulan.kok.join("data/inputs/notlar.txt"),
+        b"kucuk ornek veri",
+    )
+    .unwrap();
     let hedef = taban.join("paket.bcproj");
     let rapor = project::disa_aktar(&kurulan.kok, &hedef, &DisaAktarSecenekleri::default())
         .expect("export başarısız");
@@ -86,7 +94,11 @@ fn main() {
     );
     println!(
         "    Hassas [guvenlik] sızdı mı? {}  | hassas_haric={}",
-        if guvenlik_sizdi { "EVET (HATA)" } else { "HAYIR ✓" },
+        if guvenlik_sizdi {
+            "EVET (HATA)"
+        } else {
+            "HAYIR ✓"
+        },
         rapor.hassas_haric,
     );
 
@@ -94,7 +106,7 @@ fn main() {
 }
 
 /// Bir klasör ağacını basitçe yazdırır (girinti = derinlik).
-fn yazdir_agac(kok: &Path, dizin: &Path, girinti: usize) {
+fn yazdir_agac(dizin: &Path, girinti: usize) {
     let Ok(girdiler) = fs::read_dir(dizin) else {
         return;
     };
@@ -105,7 +117,7 @@ fn yazdir_agac(kok: &Path, dizin: &Path, girinti: usize) {
         let isaret = if yol.is_dir() { "📁" } else { "📄" };
         println!("{:girinti$}{isaret} {ad}", "", girinti = girinti);
         if yol.is_dir() {
-            yazdir_agac(kok, &yol, girinti + 2);
+            yazdir_agac(&yol, girinti + 2);
         }
     }
 }
