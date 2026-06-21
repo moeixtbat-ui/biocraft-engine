@@ -10,6 +10,7 @@
 
 pub mod components;
 pub mod i18n;
+pub mod node;
 pub mod plot;
 pub mod shell;
 pub mod tipografi;
@@ -32,6 +33,10 @@ pub use components::{
     Skeleton, StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
+// İP-05: Node motoru (görsel akış sistemi) — tuval + tipli portlar + DAG + undo/redo.
+pub use node::{
+    BaglantiKontrol, NodeDurumu, NodeGraf, NodeKatalogu, NodeKimlik, NodeTuvali, Port, VeriTuru,
+};
 pub use plot::PlotWidget;
 // İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Editor / Bottom / Status + Inspector).
 pub use shell::{

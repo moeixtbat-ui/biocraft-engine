@@ -43,8 +43,8 @@ use biocraft_ui::components::{ConfirmDialog, OnayKarari};
 use biocraft_ui::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu, yan_panel,
     ActivityMod, AltPanel, AltSekme, BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery,
-    KabukAksiyon, KapatmaIstegi, ProjeSihirbazi, SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema,
-    Tokenlar,
+    KabukAksiyon, KapatmaIstegi, NodeTuvali, ProjeSihirbazi, SekmeTuru, SihirbazBaglam,
+    SihirbazSonucu, Tema, Tokenlar,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -314,6 +314,10 @@ struct Sahne {
     yogun_mod: bool,
     /// Bileşen demoları (galeri) merkezde açık mı? (editör yerine geçer.)
     gallery_acik: bool,
+    /// İP-05: Node (görsel akış) editörü merkezde açık mı? (editör yerine geçer.)
+    node_tuvali_acik: bool,
+    /// İP-05: Node tuvali örneği (grafik + undo geçmişi).
+    node_tuvali: NodeTuvali,
     /// Kaydedilmemiş sekme kapatma onayı (Gün-4 onay diyaloğu) — bekleyen istek + diyalog.
     kapatma_onayi: Option<(KapatmaIstegi, ConfirmDialog)>,
     /// Özel düzen yöneticisi penceresi açık mı?
@@ -638,6 +642,8 @@ impl ApplicationHandler for Uygulama {
             inspector_genislik: kayitli_kabuk.inspector_genislik,
             yogun_mod: kayitli_kabuk.yogun_mod,
             gallery_acik: false,
+            node_tuvali_acik: false,
+            node_tuvali: NodeTuvali::ornek(),
             kapatma_onayi: None,
             duzen_penceresi_acik: false,
             duzen_ad: String::new(),
@@ -892,8 +898,13 @@ impl Sahne {
                     &mut detach_istendi,
                 );
             }
-            // 7) Merkez: bileşen demoları açıksa galeri; değilse editör/canvas alanı (sekmeli + split).
-            if self.gallery_acik {
+            // 7) Merkez: Node editörü → galeri → editör/canvas alanı (sekmeli + split) sırasıyla.
+            if self.node_tuvali_acik {
+                let node_tuvali = &mut self.node_tuvali;
+                egui::CentralPanel::default().show(c, |ui| {
+                    node_tuvali.ciz(ui, dil, &tok);
+                });
+            } else if self.gallery_acik {
                 self.gallery.show(c);
             } else {
                 egui::CentralPanel::default().show(c, |ui| {
@@ -1353,6 +1364,13 @@ impl Sahne {
             KabukAksiyon::YogunMod => self.yogun_mod = !self.yogun_mod,
             KabukAksiyon::DuzenYonetici => self.duzen_penceresi_acik = !self.duzen_penceresi_acik,
             KabukAksiyon::DemoGalerisi => self.gallery_acik = !self.gallery_acik,
+            KabukAksiyon::NodeEditoru => {
+                self.node_tuvali_acik = !self.node_tuvali_acik;
+                if self.node_tuvali_acik {
+                    // Node editörü ile galeri aynı merkez bölgeyi paylaşır → galeriyi kapat.
+                    self.gallery_acik = false;
+                }
+            }
             KabukAksiyon::KomutPaleti => {
                 self.kabuk_bildirim = Some((
                     if tr {
