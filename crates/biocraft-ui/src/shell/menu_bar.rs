@@ -54,6 +54,8 @@ pub enum KabukAksiyon {
     KomutPaleti,
     /// Node (görsel akış) editörünü merkezde aç/kapa (İP-05).
     NodeEditoru,
+    /// Kod editörünü merkezde aç/kapa (İP-06).
+    KodEditoru,
     // ── Eklenti ──
     /// Eklentileri yönet (İP-07 host'u ile).
     EklentileriYonet,
@@ -106,6 +108,8 @@ impl KabukAksiyon {
             (KomutPaleti, En) => "Command Palette…",
             (NodeEditoru, Tr) => "Node Editörü",
             (NodeEditoru, En) => "Node Editor",
+            (KodEditoru, Tr) => "Kod Editörü",
+            (KodEditoru, En) => "Code Editor",
             (EklentileriYonet, Tr) => "Eklentileri Yönet…",
             (EklentileriYonet, En) => "Manage Plugins…",
             (DemoGalerisi, Tr) => "Bileşen Demoları",
@@ -154,6 +158,7 @@ impl KabukAksiyon {
                 | DemoGalerisi
                 | KomutPaleti
                 | NodeEditoru
+                | KodEditoru
                 | Hakkinda
                 | Cikis
         )
@@ -213,6 +218,7 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
             Some(DuzenYonetici),
             None,
             Some(NodeEditoru),
+            Some(KodEditoru),
             Some(KomutPaleti),
         ],
         Menu::Eklenti => &[Some(EklentileriYonet)],
@@ -292,6 +298,7 @@ mod tests {
         KabukAksiyon::DemoGalerisi,
         KabukAksiyon::KomutPaleti,
         KabukAksiyon::NodeEditoru,
+        KabukAksiyon::KodEditoru,
         KabukAksiyon::EklentileriYonet,
         KabukAksiyon::Belgeler,
         KabukAksiyon::Hakkinda,

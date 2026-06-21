@@ -17,6 +17,7 @@
 
 pub mod capability;
 pub mod discover;
+pub mod exec;
 pub mod harden;
 pub mod install;
 pub mod isolate;
@@ -34,6 +35,8 @@ pub use biocraft_types;
 
 pub use capability::YetkiKumesi;
 pub use discover::{kesfet, KesfedilenEklenti};
+// İP-06: kod editöründen gelen kullanıcı kodunu ayrı süreçte çalıştırma (MK-02).
+pub use exec::{calistir_baslat, CalismaModu, CalismaOlay, CalismaTutamac, KodCalismaLimitleri};
 pub use harden::{cekirdek_arg_dogrula, AyristirmaLimitleri, SurecSinirlari};
 pub use install::{BcextPaket, GuncellemeSonucu, Kurucu, KurulumSonucu};
 pub use isolate::{CokmeKarari, EklentiSagligi, IzolasyonYoneticisi, KaynakKullanim};

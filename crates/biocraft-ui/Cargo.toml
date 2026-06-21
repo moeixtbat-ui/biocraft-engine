@@ -14,6 +14,9 @@ biocraft-render = { path = "../biocraft-render" }
 biocraft-state  = { path = "../biocraft-state" }
 # İP-08: Bellek bütçesi diyaloğu + öncelik seçici + bellek göstergesi (L2 → aşağı bağımlılık).
 biocraft-mem    = { path = "../biocraft-mem" }
+# İP-06: kod editörü kodu AYRI SÜREÇTE çalıştırır (MK-02) → out-of-process çalıştırma motoru
+# (`biocraft_plugin_host::exec`).  L4→L3 (render gibi); döngü yok (plugin-host UI'ye bağlanmaz).
+biocraft-plugin-host = { path = "../biocraft-plugin-host" }
 
 # MK-01: UI = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
 # İP-16 bileşenleri saf egui ile yazılır; pencere/font yönetimi İP-04 (render host)
@@ -24,3 +27,6 @@ egui = { workspace = true }
 # serde/serde_json zaten workspace ağacında (data/state/sdk kullanıyor) → YENİ dış bağımlılık değil.
 serde      = { workspace = true }
 serde_json = { workspace = true }
+# İP-06: büyük dosya akışı (out-of-core, MK-09) — devasa log RAM'e alınmadan bellek-eşlenir.
+# memmap2 zaten workspace ağacında (biocraft-mem kullanıyor) → YENİ dış bağımlılık değil.
+memmap2    = { workspace = true }

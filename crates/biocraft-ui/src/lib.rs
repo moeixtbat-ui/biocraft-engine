@@ -15,6 +15,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod components;
+pub mod editor;
 pub mod i18n;
 pub mod node;
 pub mod plot;
@@ -39,6 +40,12 @@ pub use components::{
     Skeleton, StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
+// İP-06: Native kod editörü (1. kısım, Gün 22) — sekme/ağaç + saf-Rust artımlı vurgulama +
+// kodu ayrı süreçte çalıştırma (MK-02) + büyük dosya akışı (MK-09).  Node↔kod köprüsü + LSP Gün 23.
+pub use editor::{
+    AkisGoruntuleyici, Belge, Calisma, CalismaModu, CalistirmaDurumu, KodDili, KodEditoru,
+    MetinTampon, ProjeAgaci,
+};
 // İP-05: Node motoru (görsel akış sistemi) — tuval + tipli portlar + DAG + undo/redo +
 // paralel/önbellekli çalıştırma + `.bcflow` kayıt + SVG/PNG + node→Python (Gün 21 TAM).
 pub use node::{

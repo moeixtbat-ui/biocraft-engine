@@ -414,11 +414,13 @@ name = "biocraft-ui"
 version = "0.1.0"
 dependencies = [
  "biocraft-mem",
+ "biocraft-plugin-host",
  "biocraft-render",
  "biocraft-sdk",
  "biocraft-state",
  "biocraft-types",
  "egui",
+ "memmap2",
  "serde",
  "serde_json",
 ]
