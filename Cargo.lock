@@ -236,6 +236,7 @@ dependencies = [
 name = "biocraft-app"
 version = "0.1.0"
 dependencies = [
+ "biocraft-data",
  "biocraft-launcher",
  "biocraft-mem",
  "biocraft-render",
@@ -256,6 +257,11 @@ version = "0.1.0"
 dependencies = [
  "biocraft-sdk",
  "biocraft-types",
+ "blake3",
+ "chrono",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

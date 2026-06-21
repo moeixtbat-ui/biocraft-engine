@@ -10,3 +10,12 @@ description = "BioCraft Engine — L2: Veri katmanı (SQLite/DuckDB/RocksDB, pro
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
+# MK-31: proje manifesti (biocraft.toml) serileştirme/ayrıştırma — saf Rust, permissive lisans.
+toml       = { workspace = true }
+# Manifest/meta/provenance alanlarının serde türetmesi + provenance JSONL satır kaydı.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+# MK-33/MK-34: manifest + meta + her veri referansı için BLAKE3 bütünlük (açılışta doğrula).
+blake3     = { workspace = true }
+# Oluşturma/değiştirme tarihleri + göç geçmişi zaman damgaları (UTC).
+chrono     = { workspace = true }

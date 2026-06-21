@@ -1207,18 +1207,44 @@ impl Sahne {
                 AcilisSonuc::Devam
             }
             Some(SihirbazSonucu::Olustur(taslak)) => {
-                self.sihirbaz = None;
-                log::info!(
-                    "Proje taslağı hazır: ad='{}' konum='{}' şablon={:?} sınıf={:?} \
-                     şifreli={} ai_havuzu={} (gerçek kurulum Gün 17 — biocraft-data).",
-                    taslak.ad,
-                    taslak.konum.display(),
-                    taslak.sablon,
-                    taslak.siniflandirma,
-                    taslak.sifreleme,
-                    taslak.ai_havuzu_katki,
-                );
-                AcilisSonuc::MotoraGec
+                // İP-02 (2. kısım): taslak → gerçek klasör + biocraft.toml + BLAKE3 (biocraft-data).
+                // Başarıda sihirbaz kapanır + proje son-projelere eklenir; başarısızlıkta sihirbaz
+                // AÇIK kalır (kullanıcı konumu düzeltebilir) — yarım klasır biocraft-data'da
+                // atomik temizlikle silinmiştir.
+                let girdi = taslak_to_girdi(&taslak);
+                match biocraft_data::olustur(&girdi) {
+                    Ok(kurulan) => {
+                        self.sihirbaz = None;
+                        let ad = kurulan.manifest.kimlik.ad.clone();
+                        self.launcher
+                            .recent
+                            .acildi(kurulan.kok.clone(), ad, simdi());
+                        let _ = son_projeleri_kaydet(&self.launcher_depo, &self.launcher.recent);
+                        log::info!(
+                            "Proje oluşturuldu: '{}' (sınıf={:?}, şifreli={}, format={}).",
+                            kurulan.kok.display(),
+                            kurulan.manifest.siniflandirma.sinif,
+                            kurulan
+                                .manifest
+                                .guvenlik
+                                .map(|g| g.sifreleme)
+                                .unwrap_or(false),
+                            kurulan.manifest.kimlik.format_surumu,
+                        );
+                        AcilisSonuc::MotoraGec
+                    }
+                    Err(hata) => {
+                        log::error!(
+                            "Proje oluşturulamadı: {} — {} (çözüm: {}) [id={}]",
+                            hata.ne_oldu,
+                            hata.neden,
+                            hata.nasil_cozulur,
+                            hata.correlation_id.kisa(),
+                        );
+                        // Sihirbaz açık bırakılır (self.sihirbaz = Some) → kullanıcı düzeltebilir.
+                        AcilisSonuc::Devam
+                    }
+                }
             }
             Some(SihirbazSonucu::EklentiIndir(url)) => {
                 // Eklenti indirme platforma-özel ince adaptör (İP-15); sihirbaz açık kalır.
@@ -2385,6 +2411,52 @@ fn launcher_demo_tohumla(liste: &mut biocraft_launcher::SonProjelerListesi) {
     );
     // İlk girdiyi sabitle (pin) → sıralama/pin yüzeyi görünür.
     liste.sabit_degistir(&mevcut.join("ornek-insan-genomu.bcproj"));
+}
+
+/// İP-02 köprüsü (MK-40): sihirbazın UI taslağını (L4) `biocraft-data`'nın kurulum girdisine (L2)
+/// çevirir.  Katman kuralı gereği `biocraft-data` UI'ye bağlanamaz; bu eşleme **app (L5)**'tedir.
+///
+/// Sihirbaz `konum`u **üst** klasördür; proje kökü `konum/ad` olur (biocraft-data kurar).  Şablon
+/// UI enum'u kararlı bir manifest anahtarına (`genomik`/…) eşlenir.  Determinizm bayrağı sihirbazda
+/// toplanmadığından varsayılan (Hızlı Keşif) kalır; proje ayarlarından değiştirilebilir (kanca).
+fn taslak_to_girdi(taslak: &biocraft_ui::ProjeTaslagi) -> biocraft_data::ProjeKurulumGirdisi {
+    use biocraft_data::biocraft_types::Version;
+    use biocraft_ui::wizard::{BuyukVeriStratejisi as UiBuyuk, VeriYerlesimi as UiYer};
+    use biocraft_ui::ProjeSablonu;
+
+    let sablon_anahtari = match taslak.sablon {
+        ProjeSablonu::Genomik => "genomik",
+        ProjeSablonu::Proteomik => "proteomik",
+        ProjeSablonu::CrisprGenDuzenleme => "crispr",
+        ProjeSablonu::Bos => "bos",
+    };
+
+    // Bu sürümü oluşturan BioCraft sürümü (workspace 0.1.0).
+    let mut girdi = biocraft_data::ProjeKurulumGirdisi::yeni(
+        taslak.ad.clone(),
+        taslak.konum.clone(),
+        sablon_anahtari,
+        taslak.siniflandirma,
+        Version::new(0, 1, 0),
+    );
+    girdi.aciklama = taslak.aciklama.clone();
+    girdi.kurum = taslak.kurum.clone();
+    girdi.etiketler = taslak.etiketler.clone();
+    girdi.orcid = taslak.orcid.clone();
+    girdi.veri_yerlesim = match taslak.veri.yerlesim {
+        UiYer::Yerel => biocraft_data::VeriYerlesimi::Yerel,
+        UiYer::Baglantili => biocraft_data::VeriYerlesimi::Baglantili,
+    };
+    girdi.buyuk_veri = match taslak.veri.buyuk_veri {
+        UiBuyuk::Referans => biocraft_data::BuyukVeriStratejisi::Referans,
+        UiBuyuk::Gomulu => biocraft_data::BuyukVeriStratejisi::Gomulu,
+    };
+    girdi.akis_modu = taslak.veri.akis_modu;
+    girdi.tamamen_yerel = taslak.tamamen_yerel;
+    girdi.ai_havuzu_katki = taslak.ai_havuzu_katki;
+    girdi.sifreleme = taslak.sifreleme;
+    girdi.dagitik_ag_etkin = taslak.dagitik_ag_etkin;
+    girdi
 }
 
 /// Kalıcı tema seçimini UI temasına eşler (L2 nötr enum → L4 `Tema`).
