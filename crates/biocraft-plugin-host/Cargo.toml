@@ -16,4 +16,6 @@ biocraft-mem   = { path = "../biocraft-mem" }
 wasmtime  = { workspace = true }
 toml      = { workspace = true }
 serde     = { workspace = true }   # manifest şeması (Deserialize)
+serde_json = { workspace = true }  # MK-02: Tier-3 subprocess satır-protokolü (JSON)
 blake3    = { workspace = true }   # MK-33: AOT önbellek anahtarı + bütünlük
+ed25519-dalek = { workspace = true }  # MK-16: eklenti imza doğrulama (Ed25519)

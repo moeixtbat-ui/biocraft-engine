@@ -1,0 +1,17 @@
+# Örnek Python (Tier-3) eklentisi manifest'i (İP-07 — Gün 14).
+# Ayrı-süreç (out-of-process) köprü gösterimi için kullanılır (MK-02).
+
+[eklenti]
+kimlik = "biocraft.ornek.python"     # biocraft.<yayinci>.<eklenti>
+ad     = "Python Örnek Eklentisi"
+surum  = "0.1.0"
+katman = "python"                     # MK-12 Tier-3 — AYRI subprocess (in-process DEĞİL)
+giris  = "eklenti.py"                 # manifest'e göreli Python betiği
+
+[uyumluluk]
+abi          = "0.1"                  # hedeflenen ABI sürümü (MK-14)
+cekirdek_min = "0.1.0"               # uyumlu en düşük çekirdek sürümü
+
+[yetkiler]
+# Bu örnek herhangi bir yetki istemez (en az yetki).
+istenen = []

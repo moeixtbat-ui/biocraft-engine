@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bir eklentinin genişletebileceği UI alanı türü.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum UiUzantiTuru {
     /// Yan/alt panel.
     Panel,
