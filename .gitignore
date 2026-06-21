@@ -57,6 +57,11 @@ tdr_test.*
 *.bcext
 !assets/**/*.bcext
 
+# Sihirbazla/uygulamayla depo kökünde oluşturulan manuel TEST projeleri (repoya girmesin).
+# Bir BioCraft projesi = içinde biocraft.toml + .biocraft_meta/ olan klasördür; deneme amaçlı
+# oluşturulanları burada listele.  (İleride yeni test projeleri için aynı satırın altına ekle.)
+/sad/
+
 # Node (yardımcı araçlar için)
 node_modules/
 dist/
