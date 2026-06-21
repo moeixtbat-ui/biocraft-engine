@@ -19,3 +19,14 @@ serde_json = { workspace = true }
 blake3     = { workspace = true }
 # Oluşturma/değiştirme tarihleri + göç geçmişi zaman damgaları (UTC).
 chrono     = { workspace = true }
+# ─── İP-09 GÜVENLİK (MK-44/45/20) ───────────────────────────────────────────────
+# MK-44: hassas veriyi dinlenmede AES-256-GCM ile şifrele (security/crypto.rs).
+aes-gcm    = { workspace = true }
+# MK-44: her şifrelemede taze nonce (OS CSPRNG) — nonce ASLA tekrarlanmaz.
+getrandom  = { workspace = true }
+# MK-44/45: anahtar baytlarını kullanım sonrası bellekten sıfırla.
+zeroize    = { workspace = true }
+# MK-44: anahtarı OS güvenli deposunda sakla (security/credentials.rs).
+keyring    = { workspace = true }
+# MK-16 (İP-09 bütünlük): imzalı güncelleme paketini doğrula (security/integrity.rs) — Ed25519.
+ed25519-dalek = { workspace = true }

@@ -24,6 +24,7 @@ pub use biocraft_types;
 
 pub mod privacy;
 pub mod project;
+pub mod security;
 
 // Sık kullanılan proje formatı API'sini kök seviyede yeniden dışa aktar (kolay erişim).
 pub use project::{

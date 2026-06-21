@@ -145,6 +145,11 @@ impl<'a> Okuyucu<'a> {
 impl BcextPaket {
     /// `.bcext` baytlarını ayrıştırır (yapısal bütünlük denetimiyle).
     pub fn ac(bytes: &[u8]) -> Result<Self, ErrorReport> {
+        // İP-09 sertleştirme: güvenilmeyen paket → kaynak-istismarı (devasa/çok-girdi) limitleri.
+        // (Okuyucu zaten checked_add + sınır denetimiyle bellek-güvenlidir; bu, ek kaynak tavanıdır.)
+        let limit = crate::harden::AyristirmaLimitleri::siki();
+        limit.girdi_denetle(bytes.len() as u64)?;
+
         let mut o = Okuyucu::yeni(bytes);
         if o.al(BCEXT_MAGIC.len())? != BCEXT_MAGIC {
             return Err(ErrorReport::new(
@@ -154,12 +159,16 @@ impl BcextPaket {
             ));
         }
         let sayi = o.u32()? as usize;
+        limit.girdi_sayisi_denetle(sayi)?;
         let mut dosyalar = Vec::with_capacity(sayi.min(1024));
+        let mut toplam_icerik = 0u64;
         for _ in 0..sayi {
             let ad_len = o.u16()? as usize;
             let ad = String::from_utf8(o.al(ad_len)?.to_vec())
                 .map_err(|_| ic_hata("Eklenti paketi bozuk", "dosya adı geçerli UTF-8 değil"))?;
             let icerik_len = o.u64()? as usize;
+            // Birikmiş içerik tavanı (çok büyük paket açma sırasında durdurulur — checked).
+            toplam_icerik = limit.cikti_denetle(toplam_icerik, icerik_len as u64)?;
             let icerik = o.al(icerik_len)?.to_vec();
             dosyalar.push((ad, icerik));
         }

@@ -182,6 +182,33 @@ fn main() {
         None => println!("  Python örnek eklentisi bulunamadı."),
     }
 
+    // ── İP-09: Sandbox sertleştirme — zip-bomb / kaynak istismarı reddi ──
+    println!("\n[7] Sandbox sertleştirme (İP-09) — kötü dosya çökertmez, reddedilir");
+    let limit = biocraft_plugin_host::AyristirmaLimitleri::siki();
+    let satir = |ad: &str, red: bool| {
+        println!("  {} {ad}", if red { "✓ REDDEDİLDİ" } else { "✗ kabul" });
+    };
+    satir(
+        "Aşırı oran (1 KiB → 1 GiB şişme)",
+        limit.oran_denetle(1024, 1024 * 1024 * 1024).is_err(),
+    );
+    satir(
+        "Devasa girdi (1 GiB paket)",
+        limit.girdi_denetle(1024 * 1024 * 1024).is_err(),
+    );
+    satir(
+        "Çıktı taşması (u64 overflow — panik YOK)",
+        limit.cikti_denetle(u64::MAX, 1).is_err(),
+    );
+    let makul = limit.girdi_denetle(8 * 1024 * 1024).is_ok()
+        && limit
+            .oran_denetle(8 * 1024 * 1024, 32 * 1024 * 1024)
+            .is_ok();
+    println!(
+        "  {} Makul paket (8 MiB, 4x şişme) kabul",
+        if makul { "✓" } else { "✗" }
+    );
+
     println!("\nDemo tamamlandı (çekirdek hiç panik yapmadı).");
 }
 

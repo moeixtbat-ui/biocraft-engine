@@ -12,7 +12,6 @@
 //!   listeler — "neyim var" sorusu.
 
 use std::fs;
-use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
 use biocraft_types::ErrorReport;
@@ -226,35 +225,24 @@ pub fn guvenli_sil(kok: &Path, secenek: &SilmeSecenekleri) -> Result<SilmeRaporu
     })
 }
 
-/// Tüm dosyaların içeriğini sıfır baytla üzerine yazıp fsync'ler (en iyi-çaba).
+/// Tüm dosyaların içeriğini üzerine yazıp fsync'ler (en iyi-çaba) — İP-09 silme primitifini kullanır.
+///
+/// Düşük seviye üzerine-yazma `security::secure_delete`'te tek yerde tutulur (DRY); buradaki gezgin
+/// onu klasör ağacına uygular.  Üzerine yazma başarısız olsa bile silmeye devam edilir (en iyi-çaba).
 fn uzerine_yaz_gez(
     dizin: &Path,
     silinen: &mut usize,
     yazilan: &mut u64,
 ) -> Result<(), ErrorReport> {
+    use crate::security::secure_delete::{dosya_uzerine_yaz, UzerineYazSecenek};
     for girdi in fs::read_dir(dizin).map_err(|e| io_hatasi("Klasör gezilemedi", dizin, &e))? {
         let girdi = girdi.map_err(|e| io_hatasi("Klasör girdisi okunamadı", dizin, &e))?;
         let yol = girdi.path();
         if yol.is_dir() {
             uzerine_yaz_gez(&yol, silinen, yazilan)?;
         } else if yol.is_file() {
-            let boyut = girdi.metadata().map(|m| m.len()).unwrap_or(0);
-            // İçeriği sıfırla (en iyi-çaba; başarısızsa silmeye yine de devam edilir).
-            if let Ok(mut f) = fs::OpenOptions::new().write(true).open(&yol) {
-                let sifir = vec![0u8; boyut.min(1024 * 1024) as usize];
-                let mut kalan = boyut;
-                let _ = f.seek(SeekFrom::Start(0));
-                while kalan > 0 {
-                    let n = kalan.min(sifir.len() as u64) as usize;
-                    if f.write_all(&sifir[..n]).is_err() {
-                        break;
-                    }
-                    kalan -= n as u64;
-                }
-                let _ = f.flush();
-                let _ = f.sync_all();
-                *yazilan += boyut;
-            }
+            // En iyi-çaba: üzerine yazma başarısızsa bile (kilit/izin) silmeye devam edilir.
+            *yazilan += dosya_uzerine_yaz(&yol, &UzerineYazSecenek::default()).unwrap_or(0);
             *silinen += 1;
         }
     }

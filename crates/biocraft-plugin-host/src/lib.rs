@@ -17,6 +17,7 @@
 
 pub mod capability;
 pub mod discover;
+pub mod harden;
 pub mod install;
 pub mod isolate;
 pub mod manifest;
@@ -33,6 +34,7 @@ pub use biocraft_types;
 
 pub use capability::YetkiKumesi;
 pub use discover::{kesfet, KesfedilenEklenti};
+pub use harden::{cekirdek_arg_dogrula, AyristirmaLimitleri, SurecSinirlari};
 pub use install::{BcextPaket, GuncellemeSonucu, Kurucu, KurulumSonucu};
 pub use isolate::{CokmeKarari, EklentiSagligi, IzolasyonYoneticisi, KaynakKullanim};
 pub use manifest::{EklentiKimligi, Manifest};

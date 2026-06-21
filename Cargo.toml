@@ -22,6 +22,10 @@ members = [
     # L5 — ana binary
     "crates/biocraft-app",
 ]
+# MK-58 (İP-09): fuzzing hedefleri ayrı bir crate'tir ve workspace ÜYESİ DEĞİLDİR — yalnızca
+# `cargo +nightly fuzz` (libfuzzer, nightly) ile derlenir.  Hariç tutulması, normal
+# `cargo build/test --workspace` + clippy + machete + topoloji + cargo-deny akışını ETKİLEMEZ.
+exclude = ["fuzz"]
 
 [workspace.package]
 version   = "0.1.0"
@@ -73,3 +77,16 @@ toml       = "1.1.2"
 #     deterministik kurulur, imzalama/doğrulama RFC 8032 gereği deterministiktir →
 #     CI'da harici entropi/C derleyici GEREKMEZ.  `std` = std hata tipleri.
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# ─── İP-09 GÜVENLİK (MK-44/45/20) — hepsi SAF Rust (RustCrypto), C derleyici GEREKMEZ ───
+# MK-44: hassas veriyi dinlenmede AES-256-GCM ile şifrele.  RustCrypto (Apache-2.0 OR MIT),
+#   denetlenebilir açık kaynak (Kerckhoffs — İP-09 açık/kapalı ilkesi).
+aes-gcm    = "0.10"
+# MK-44: AES-GCM nonce'u her şifrelemede TAZE üretilir (asla tekrar etmez) — OS CSPRNG.
+#   getrandom işletim sistemi syscall'ını kullanır (C derleyici/entropi sunucusu GEREKMEZ).
+getrandom  = "0.2"
+# MK-44/45: anahtar baytlarını bellekte kullanım sonrası SIFIRLA (zeroize) — RAM'de iz bırakma.
+zeroize    = { version = "1", features = ["derive"] }
+# MK-44: anahtarlar OS güvenli deposunda (Windows Credential Manager / macOS Keychain /
+#   Linux kernel keyutils).  default-features=false + yalnız NATIVE backend'ler → Linux'ta
+#   D-Bus/secret-service GEREKMEZ (CI'da derlenir).  Apache-2.0 OR MIT.
+keyring    = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
