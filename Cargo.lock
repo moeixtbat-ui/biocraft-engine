@@ -419,6 +419,8 @@ dependencies = [
  "biocraft-state",
  "biocraft-types",
  "egui",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

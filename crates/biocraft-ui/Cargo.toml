@@ -20,3 +20,7 @@ biocraft-mem    = { path = "../biocraft-mem" }
 # tarafından sağlanır — bu yüzden burada yalnızca egui'ye bağlanırız.
 # Sürüm workspace'ten gelir → tüm crate'lerde tek egui sürümü (tip uyumu).
 egui = { workspace = true }
+# İP-05: `.bcflow` akış dosyası (JSON; sürüm + node id + bağlantı + parametre — git-diff alınabilir).
+# serde/serde_json zaten workspace ağacında (data/state/sdk kullanıyor) → YENİ dış bağımlılık değil.
+serde      = { workspace = true }
+serde_json = { workspace = true }

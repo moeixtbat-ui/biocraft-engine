@@ -362,6 +362,9 @@ mod tests {
                 kimlik: "node.hizala".into(),
                 baslik: "Hizala".into(),
                 portlar: vec![],
+                kategori: String::new(),
+                aciklama: String::new(),
+                parametreler: vec![],
             },
         );
         assert_eq!(d.nodelar().len(), 1);

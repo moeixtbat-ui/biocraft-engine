@@ -15,6 +15,11 @@
 //! port/metin atlanır) → büyük grafikte bile kare bütçesi korunur, kasma olmaz.
 // MK-52: tüm renkler token'dan.  MK-53: tüm metinler i18n'den / yerel.
 
+use std::collections::HashMap;
+use std::sync::mpsc;
+
+use biocraft_mem::BellekOrkestratoru;
+use biocraft_sdk::node::Parametreler;
 use biocraft_state::command::Komut;
 use biocraft_state::GeriAlYigini;
 use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
@@ -22,6 +27,7 @@ use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 use crate::i18n::Dil;
 use crate::tokens::Tokenlar;
 
+use super::cache::SonucOnbellek;
 use super::commands::{
     BaglantiEkleKomut, BaglantiSilKomut, NodeEkleKomut, NodeSilKomut, NodeTasiKomut, NotEkleKomut,
     NotSilKomut,
@@ -31,7 +37,24 @@ use super::graph::{
     PortRef, YapiskanNot,
 };
 use super::katalog::{ornek_donusturucu_kayit, NodeKatalogu};
+use super::kod::python_disa_aktar;
 use super::port::{tur_renk_anahtari, DonusturucuKayit, PortYonu};
+use super::run::{self, CalismaAyari, CalismaSonucu, IlerlemeOlay, IptalJetonu, YurutucuKayit};
+use super::serialize;
+
+/// Canvas'ın varsayılan bellek bütçesi (1 GiB) — app kendi orkestratörünü enjekte edebilir.
+const VARSAYILAN_BUTCE: u64 = 1024 * 1024 * 1024;
+
+/// Arka planda süren bir çalıştırma işi (arayüz donmaz — MK-07: pull-based, kare bütçeli).
+struct CalismaIsi {
+    ilerleme_rx: mpsc::Receiver<IlerlemeOlay>,
+    sonuc_rx: mpsc::Receiver<(CalismaSonucu, SonucOnbellek)>,
+    iptal: IptalJetonu,
+    toplam: usize,
+    tamamlanan: usize,
+    // Thread tutamağı: bırakılınca thread ayrılır (sonuç kanaldan gelir).
+    _handle: std::thread::JoinHandle<()>,
+}
 
 // ── Mantıksal (zoom'dan bağımsız) ölçüler ──────────────────────────────────────
 const NODE_GEN: f32 = 170.0;
@@ -109,6 +132,26 @@ pub struct NodeTuvali {
     palet: Option<PaletDurum>,
     /// Anlık uyarı (metin + ne zaman ayarlandığı).
     uyari: Option<(String, f64)>,
+
+    // ── Çalıştırma (Gün 21) ────────────────────────────────────────────────
+    /// Node başına parametre değerleri (`.bcflow`'da saklanır, çalıştırmada okunur).
+    parametreler: HashMap<NodeKimlik, Parametreler>,
+    /// Tür kimliğinden çalıştırıcıya eşleme (eklenti SDK node'ları buraya kaydolur).
+    kayit: YurutucuKayit,
+    /// Sonuç önbelleği (değişmeyen node yeniden hesaplanmaz).
+    onbellek: SonucOnbellek,
+    /// Bellek bütçesi orkestratörü (paralel çalıştırma rezervasyonu — OOM koruması).
+    orkestrator: BellekOrkestratoru,
+    /// Canlı mod: yapısal değişiklikte otomatik çalıştır (ağır node varsa uyarı).
+    canli_mod: bool,
+    /// Süren arka plan çalıştırması (varsa).
+    is: Option<CalismaIsi>,
+    /// Son çalıştırmanın tam sonucu (kablo önizlemesi + özet).
+    son_sonuc: Option<CalismaSonucu>,
+    /// Önizleme için seçili kablo.
+    secili_baglanti: Option<BaglantiKimlik>,
+    /// Canlı modda yeniden çalıştırma gereği (yapı değişti).
+    canli_kirli: bool,
 }
 
 impl Default for NodeTuvali {
@@ -133,6 +176,15 @@ impl NodeTuvali {
             baglanti_kaynak: None,
             palet: None,
             uyari: None,
+            parametreler: HashMap::new(),
+            kayit: YurutucuKayit::ornek(),
+            onbellek: SonucOnbellek::yeni(),
+            orkestrator: BellekOrkestratoru::yeni(VARSAYILAN_BUTCE),
+            canli_mod: false,
+            is: None,
+            son_sonuc: None,
+            secili_baglanti: None,
+            canli_kirli: false,
         }
     }
 
@@ -202,6 +254,242 @@ impl NodeTuvali {
     fn uyar(&mut self, ctx: &egui::Context, metin: impl Into<String>) {
         let now = ctx.input(|i| i.time);
         self.uyari = Some((metin.into(), now));
+    }
+
+    // ── Çalıştırma (paralel + bütçeli + önbellekli; arayüz donmaz) ─────────
+
+    /// Bir eklenti/çekirdek node kaydı ekler (eklenti SDK entegrasyon noktası).
+    pub fn node_kaydet(&mut self, kayit: biocraft_sdk::node::NodeKaydi) {
+        self.kayit.kaydet(kayit);
+    }
+
+    /// App'in paylaşılan bellek orkestratörünü enjekte eder (yoksa varsayılan kullanılır).
+    pub fn orkestrator_ayarla(&mut self, orkestrator: BellekOrkestratoru) {
+        self.orkestrator = orkestrator;
+    }
+
+    /// Canlı mod açık mı?
+    pub fn canli_mod(&self) -> bool {
+        self.canli_mod
+    }
+
+    /// Bir çalıştırma şu an sürüyor mu?
+    pub fn calisiyor_mu(&self) -> bool {
+        self.is.is_some()
+    }
+
+    /// Akışta ağır (pahalı) node var mı? (Canlı mod uyarısı için.)
+    fn agir_node_var(&self) -> bool {
+        self.graf.nodelar().iter().any(|n| {
+            self.kayit
+                .al(&n.tur_kimligi)
+                .map(|k| k.yurutucu.agir_mi())
+                .unwrap_or(false)
+        })
+    }
+
+    /// **Akışı arka planda çalıştırır** (arayüz donmaz).  Zaten süren iş varsa yok sayar.
+    pub fn calistir_baslat(&mut self) {
+        if self.is.is_some() {
+            return;
+        }
+        self.canli_kirli = false;
+        // Başlangıçta tüm durumları "bekliyor" yap (görsel sıfırlama).
+        let kimlikler: Vec<NodeKimlik> = self.graf.nodelar().iter().map(|n| n.kimlik).collect();
+        for k in &kimlikler {
+            self.graf.durum_ayarla(*k, NodeDurumu::Bekliyor);
+        }
+
+        let graf = self.graf.clone();
+        let kayit = self.kayit.clone();
+        let pars = self.parametreler.clone();
+        let ork = self.orkestrator.clone();
+        let mut onb = self.onbellek.clone();
+        let iptal = IptalJetonu::yeni();
+        let iptal_thr = iptal.clone();
+        let toplam = graf.nodelar().len();
+        let ayar = CalismaAyari {
+            canli_mod: self.canli_mod,
+            ..CalismaAyari::default()
+        };
+        let (itx, irx) = mpsc::channel();
+        let (stx, srx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let mut ilerleme = |o: IlerlemeOlay| {
+                let _ = itx.send(o);
+            };
+            let sonuc = run::calistir(
+                &graf,
+                &kayit,
+                &pars,
+                &ork,
+                &mut onb,
+                &ayar,
+                &iptal_thr,
+                &mut ilerleme,
+            );
+            let _ = stx.send((sonuc, onb));
+        });
+        self.is = Some(CalismaIsi {
+            ilerleme_rx: irx,
+            sonuc_rx: srx,
+            iptal,
+            toplam,
+            tamamlanan: 0,
+            _handle: handle,
+        });
+    }
+
+    /// **Akışı senkron çalıştırır** (arka plan thread'siz) — basit kullanım + testler için.
+    /// Sonucu grafiğe uygular ve döndürür.  İş sürüyorsa bir şey yapmaz.
+    pub fn calistir_simdi(&mut self) -> &Option<CalismaSonucu> {
+        if self.is.is_some() {
+            return &self.son_sonuc;
+        }
+        let ayar = CalismaAyari {
+            canli_mod: self.canli_mod,
+            ..CalismaAyari::default()
+        };
+        let mut ilerleme = |_o: IlerlemeOlay| {};
+        let sonuc = run::calistir(
+            &self.graf,
+            &self.kayit,
+            &self.parametreler,
+            &self.orkestrator,
+            &mut self.onbellek,
+            &ayar,
+            &IptalJetonu::yeni(),
+            &mut ilerleme,
+        );
+        sonuc.durumu_uygula(&mut self.graf);
+        self.son_sonuc = Some(sonuc);
+        self.canli_kirli = false;
+        &self.son_sonuc
+    }
+
+    /// Bir node'un parametre değerini ayarlar (çalıştırmayı + önbelleği etkiler).
+    pub fn parametre_ayarla(
+        &mut self,
+        node: NodeKimlik,
+        ad: impl Into<String>,
+        deger: biocraft_sdk::node::ParametreDeger,
+    ) {
+        self.parametreler.entry(node).or_default().ayarla(ad, deger);
+        self.canli_kirli = true;
+    }
+
+    /// Süren çalıştırmayı iptal eder.
+    pub fn calistirmayi_iptal(&mut self) {
+        if let Some(is) = &self.is {
+            is.iptal.iptal_et();
+        }
+    }
+
+    /// Arka plan işini yoklar: ilerleme olaylarını uygular, bitince sonucu alır (kare başına).
+    fn calistirmayi_yokla(&mut self, ctx: &egui::Context) {
+        let mut olaylar: Vec<(NodeKimlik, NodeDurumu)> = Vec::new();
+        let mut bitti: Option<(CalismaSonucu, SonucOnbellek)> = None;
+        if let Some(is) = self.is.as_mut() {
+            while let Ok(o) = is.ilerleme_rx.try_recv() {
+                is.tamamlanan = o.tamamlanan;
+                olaylar.push((o.node, o.durum));
+            }
+            if let Ok(r) = is.sonuc_rx.try_recv() {
+                bitti = Some(r);
+            }
+        }
+        for (node, durum) in olaylar {
+            self.graf.durum_ayarla(node, durum);
+        }
+        if let Some((sonuc, onb)) = bitti {
+            sonuc.durumu_uygula(&mut self.graf);
+            self.onbellek = onb;
+            self.son_sonuc = Some(sonuc);
+            self.is = None;
+        }
+        if self.is.is_some() {
+            ctx.request_repaint(); // iş sürerken kareleri zorla (pull-based ilerleme).
+        }
+    }
+
+    // ── Dışa aktarma (kaydet/görsel) ──────────────────────────────────────
+
+    /// Akışı `.bcflow` (JSON) metni olarak döndürür.
+    pub fn bcflow_metni(&self) -> String {
+        serialize::bcflow_kaydet(&self.graf, &self.parametreler)
+    }
+
+    /// `.bcflow` metninden akışı yükler (mevcut grafı + parametreleri + geçmişi değiştirir).
+    pub fn bcflow_yukle(&mut self, metin: &str) -> Result<(), biocraft_types::ErrorReport> {
+        let (graf, pars) = serialize::bcflow_yukle(metin)?;
+        self.graf = graf;
+        self.parametreler = pars;
+        self.gecmis = GeriAlYigini::yeni();
+        self.onbellek.temizle();
+        self.son_sonuc = None;
+        self.secili_node = None;
+        self.secili_baglanti = None;
+        Ok(())
+    }
+
+    /// Akışın SVG (vektör) dışa aktarımı.
+    pub fn svg_metni(&self, tok: &Tokenlar, dil: Dil) -> String {
+        serialize::svg_disa_aktar(&self.graf, tok, dil)
+    }
+
+    /// Akışın PNG (raster) dışa aktarımı.
+    pub fn png_baytlari(&self, tok: &Tokenlar, olcek: f32) -> Vec<u8> {
+        serialize::png_disa_aktar(&self.graf, tok, olcek)
+    }
+
+    /// Akışın eşdeğer Python betiği.
+    pub fn python_metni(&self) -> String {
+        python_disa_aktar(&self.graf, &self.parametreler)
+    }
+
+    /// Pointer'a en yakın kabloyu (eşik içinde) döndürür — kablo önizlemesi için.
+    fn kablo_vurus(&self, rect: Rect, pointer: Option<Pos2>) -> Option<BaglantiKimlik> {
+        let p = pointer?;
+        let mut en_yakin: Option<(BaglantiKimlik, f32)> = None;
+        for b in self.graf.baglantilar() {
+            let (Some(ns), Some(nh)) =
+                (self.graf.node(b.kaynak.node), self.graf.node(b.hedef.node))
+            else {
+                continue;
+            };
+            let a = self.l2s(
+                rect,
+                Self::port_konum(ns.konum, b.kaynak.yon, b.kaynak.indeks),
+            );
+            let z = self.l2s(
+                rect,
+                Self::port_konum(nh.konum, b.hedef.yon, b.hedef.indeks),
+            );
+            let dx = (z.x - a.x).abs().max(40.0) * 0.5;
+            let c1 = Pos2::new(a.x + dx, a.y);
+            let c2 = Pos2::new(z.x - dx, z.y);
+            // Bezier'i örnekle, en yakın segment mesafesini bul.
+            let mut onceki = a;
+            for i in 1..=20 {
+                let t = i as f32 / 20.0;
+                let u = 1.0 - t;
+                let nx = u * u * u * a.x
+                    + 3.0 * u * u * t * c1.x
+                    + 3.0 * u * t * t * c2.x
+                    + t * t * t * z.x;
+                let ny = u * u * u * a.y
+                    + 3.0 * u * u * t * c1.y
+                    + 3.0 * u * t * t * c2.y
+                    + t * t * t * z.y;
+                let nokta = Pos2::new(nx, ny);
+                let d = nokta_segment_mesafe(p, onceki, nokta);
+                if d < 6.0 && en_yakin.map(|(_, ed)| d < ed).unwrap_or(true) {
+                    en_yakin = Some((b.kimlik, d));
+                }
+                onceki = nokta;
+            }
+        }
+        en_yakin.map(|(k, _)| k)
     }
 
     // ── Koordinat dönüşümleri ──────────────────────────────────────────────
@@ -302,6 +590,8 @@ impl NodeTuvali {
     /// Tuvali çizer ve tüm etkileşimi işler (tek karelik immediate-mode).
     pub fn ciz(&mut self, ui: &mut egui::Ui, dil: Dil, tok: &Tokenlar) {
         let ctx = ui.ctx().clone();
+        // Süren arka plan çalıştırmasını yokla (ilerleme/sonuç) — arayüz donmadan.
+        self.calistirmayi_yokla(&ctx);
         let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
         let rect = resp.rect;
         painter.rect_filled(rect, egui::Rounding::ZERO, tok.renk.zemin);
@@ -397,9 +687,15 @@ impl NodeTuvali {
             self.pan += resp.drag_delta();
         }
 
-        // Boş alana sol tık → seçim temizle.  Sağ tık → palet aç.
+        // Boş alana sol tık → kablo varsa önizleme seç, yoksa seçim temizle.  Sağ tık → palet.
         if resp.clicked() {
-            self.secili_node = None;
+            if let Some(bk) = self.kablo_vurus(rect, pointer) {
+                self.secili_baglanti = Some(bk);
+                self.secili_node = None;
+            } else {
+                self.secili_node = None;
+                self.secili_baglanti = None;
+            }
         }
         if resp.secondary_clicked() {
             if let Some(p) = pointer {
@@ -420,12 +716,22 @@ impl NodeTuvali {
         }
 
         // ── Overlay'ler ───────────────────────────────────────────────────
+        self.baglanti_onizleme_ciz(&ctx, &painter, rect, dil, tok);
         self.arac_cubugu_ciz(&ctx, rect, dil, tok, &mut eylemler);
         self.palet_ciz(&ctx, rect, dil, tok, &mut eylemler);
         self.uyari_ciz(&ctx, rect, dil, tok);
 
         // ── Toplanan eylemleri geçmişe yaz ────────────────────────────────
         self.eylemleri_uygula(eylemler);
+
+        // F5 → çalıştır (klavye kısayolu).
+        if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
+            self.calistir_baslat();
+        }
+        // Canlı mod: yapı değiştiyse ve iş sürmüyorsa otomatik yeniden çalıştır.
+        if self.canli_mod && self.canli_kirli && self.is.is_none() {
+            self.calistir_baslat();
+        }
     }
 
     fn izgara_ciz(&self, painter: &egui::Painter, rect: Rect, tok: &Tokenlar) {
@@ -947,6 +1253,240 @@ impl NodeTuvali {
                                 .color(tok.renk.metin_soluk),
                             );
                         });
+                        ui.separator();
+                        // ── Çalıştırma satırı (Çalıştır / İptal / ilerleme / canlı / dışa aktar) ──
+                        ui.horizontal(|ui| {
+                            self.calistirma_kontrolleri(ui, ctx, dil, tok);
+                        });
+                    });
+            });
+    }
+
+    /// Araç çubuğunun çalıştırma kontrolleri (Çalıştır/İptal/ilerleme/canlı mod/dışa aktarma).
+    fn calistirma_kontrolleri(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        dil: Dil,
+        tok: &Tokenlar,
+    ) {
+        let tr = matches!(dil, Dil::Tr);
+        // Çalıştır / İptal.
+        if self.is.is_some() {
+            let (tamam, toplam) = self
+                .is
+                .as_ref()
+                .map(|i| (i.tamamlanan, i.toplam))
+                .unwrap_or((0, 0));
+            let oran = if toplam > 0 {
+                tamam as f32 / toplam as f32
+            } else {
+                0.0
+            };
+            ui.add(
+                egui::ProgressBar::new(oran)
+                    .desired_width(120.0)
+                    .text(format!("{tamam}/{toplam}"))
+                    .fill(tok.renk.vurgu),
+            );
+            if ui.button(if tr { "⏹ İptal" } else { "⏹ Cancel" }).clicked() {
+                self.calistirmayi_iptal();
+            }
+        } else if ui
+            .button(
+                egui::RichText::new(if tr { "▶ Çalıştır" } else { "▶ Run" }).color(tok.renk.basari),
+            )
+            .on_hover_text(if tr {
+                "Akışı çalıştır (bağımsız dallar paralel, sonuç önbelleğinden)"
+            } else {
+                "Run the flow (independent branches in parallel, results cached)"
+            })
+            .clicked()
+        {
+            self.calistir_baslat();
+        }
+
+        // Canlı mod.
+        let onceki_canli = self.canli_mod;
+        ui.checkbox(&mut self.canli_mod, if tr { "Canlı" } else { "Live" })
+            .on_hover_text(if tr {
+                "Değişiklikte otomatik çalıştır"
+            } else {
+                "Auto-run on change"
+            });
+        if self.canli_mod && !onceki_canli && self.agir_node_var() {
+            self.uyar(
+                ctx,
+                if tr {
+                    "Canlı mod açık: akışta ağır node var; her değişiklikte yeniden hesaplanır."
+                } else {
+                    "Live mode on: flow has heavy nodes; recomputed on every change."
+                },
+            );
+        }
+
+        // Dışa aktarma menüsü (rfd dosya seçici ertelendi → panoya kopyala).
+        ui.menu_button(if tr { "⬇ Dışa Aktar" } else { "⬇ Export" }, |ui| {
+            if ui
+                .button(if tr {
+                    "Akış (.bcflow) → pano"
+                } else {
+                    "Flow (.bcflow) → clipboard"
+                })
+                .clicked()
+            {
+                let s = self.bcflow_metni();
+                ui.output_mut(|o| o.copied_text = s);
+                self.uyar(
+                    ctx,
+                    if tr {
+                        "Akış panoya kopyalandı (.bcflow)."
+                    } else {
+                        "Flow copied to clipboard (.bcflow)."
+                    },
+                );
+                ui.close_menu();
+            }
+            if ui
+                .button(if tr {
+                    "SVG → pano"
+                } else {
+                    "SVG → clipboard"
+                })
+                .clicked()
+            {
+                let s = self.svg_metni(tok, dil);
+                ui.output_mut(|o| o.copied_text = s);
+                self.uyar(
+                    ctx,
+                    if tr {
+                        "SVG panoya kopyalandı."
+                    } else {
+                        "SVG copied to clipboard."
+                    },
+                );
+                ui.close_menu();
+            }
+            if ui
+                .button(if tr {
+                    "Python betiği → pano"
+                } else {
+                    "Python script → clipboard"
+                })
+                .clicked()
+            {
+                let s = self.python_metni();
+                ui.output_mut(|o| o.copied_text = s);
+                self.uyar(
+                    ctx,
+                    if tr {
+                        "Python betiği panoya kopyalandı."
+                    } else {
+                        "Python script copied to clipboard."
+                    },
+                );
+                ui.close_menu();
+            }
+        });
+
+        // Son çalıştırma özeti.
+        if let Some(s) = &self.son_sonuc {
+            let metin = if tr {
+                format!(
+                    "✓ {} hesaplandı · {} önbellek · {} hata",
+                    s.hesaplanan, s.onbellekten_atlanan, s.hata_sayisi
+                )
+            } else {
+                format!(
+                    "✓ {} computed · {} cached · {} errors",
+                    s.hesaplanan, s.onbellekten_atlanan, s.hata_sayisi
+                )
+            };
+            let renk = if s.hata_sayisi > 0 {
+                tok.renk.uyari
+            } else {
+                tok.renk.metin_soluk
+            };
+            ui.label(egui::RichText::new(metin).small().color(renk));
+        }
+    }
+
+    /// Seçili kabloyu vurgular + üstünde ara veri önizlemesi gösterir (kabloya tıkla → önizleme).
+    fn baglanti_onizleme_ciz(
+        &self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        rect: Rect,
+        dil: Dil,
+        tok: &Tokenlar,
+    ) {
+        let tr = matches!(dil, Dil::Tr);
+        let Some(bk) = self.secili_baglanti else {
+            return;
+        };
+        let Some(b) = self.graf.baglantilar().iter().find(|x| x.kimlik == bk) else {
+            return;
+        };
+        let (Some(ns), Some(nh)) = (self.graf.node(b.kaynak.node), self.graf.node(b.hedef.node))
+        else {
+            return;
+        };
+        let a = self.l2s(
+            rect,
+            Self::port_konum(ns.konum, b.kaynak.yon, b.kaynak.indeks),
+        );
+        let z = self.l2s(
+            rect,
+            Self::port_konum(nh.konum, b.hedef.yon, b.hedef.indeks),
+        );
+        // Vurgulu (kalın) kablo.
+        let dx = (z.x - a.x).abs().max(40.0) * 0.5;
+        let bez = egui::epaint::CubicBezierShape::from_points_stroke(
+            [a, Pos2::new(a.x + dx, a.y), Pos2::new(z.x - dx, z.y), z],
+            false,
+            Color32::TRANSPARENT,
+            Stroke::new(4.0, tok.renk.vurgu),
+        );
+        painter.add(bez);
+
+        // Önizleme metni (çalıştırma sonucundan).
+        let metin = match self
+            .son_sonuc
+            .as_ref()
+            .and_then(|s| s.baglanti_onizleme.get(&bk))
+        {
+            Some(d) => {
+                if tr {
+                    format!("◆ {} · {} öğe · {}", d.veri_turu, d.eleman, d.ozet)
+                } else {
+                    format!("◆ {} · {} items · {}", d.veri_turu, d.eleman, d.ozet)
+                }
+            }
+            None => {
+                if tr {
+                    "◆ Ara veri yok — önce ▶ Çalıştır'a basın.".to_string()
+                } else {
+                    "◆ No data yet — press ▶ Run first.".to_string()
+                }
+            }
+        };
+        let mid = Pos2::new((a.x + z.x) * 0.5, (a.y + z.y) * 0.5);
+        let anchor = Pos2::new(
+            mid.x.clamp(rect.min.x, rect.max.x - 240.0),
+            mid.y.clamp(rect.min.y + 8.0, rect.max.y - 40.0),
+        );
+        egui::Area::new(egui::Id::new("node-kablo-onizleme"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(anchor)
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(tok.renk.yuzey)
+                    .stroke(Stroke::new(1.0, tok.renk.vurgu))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                    .show(ui, |ui| {
+                        ui.set_max_width(240.0);
+                        ui.label(egui::RichText::new(metin).color(tok.renk.metin).small());
                     });
             });
     }
@@ -1075,6 +1615,7 @@ impl NodeTuvali {
                         let gk = self.graf.kimlik.clone();
                         self.komut(Box::new(NodeEkleKomut::yeni(&gk, node)));
                         self.secili_node = Some(kimlik);
+                        self.canli_kirli = true;
                     }
                 }
                 Eylem::NodeSil(k) => {
@@ -1083,11 +1624,15 @@ impl NodeTuvali {
                         if self.secili_node == Some(k) {
                             self.secili_node = None;
                         }
+                        self.parametreler.remove(&k);
+                        self.onbellek.gecersiz_kil(k);
+                        self.canli_kirli = true;
                     }
                 }
                 Eylem::NodeTasi { kimlik, eski, yeni } => {
                     let gk = self.graf.kimlik.clone();
                     self.komut(Box::new(NodeTasiKomut::yeni(&gk, kimlik, eski, yeni)));
+                    // Taşıma sonucu değiştirmez → önbellek/canlı tetik gerekmez.
                 }
                 Eylem::Baglan { kaynak, hedef } => {
                     if self
@@ -1103,11 +1648,16 @@ impl NodeTuvali {
                         };
                         let gk = self.graf.kimlik.clone();
                         self.komut(Box::new(BaglantiEkleKomut::yeni(&gk, b)));
+                        self.canli_kirli = true;
                     }
                 }
                 Eylem::BaglantiSil(k) => {
                     if let Some(c) = BaglantiSilKomut::yeni(&self.graf, k) {
                         self.komut(Box::new(c));
+                        if self.secili_baglanti == Some(k) {
+                            self.secili_baglanti = None;
+                        }
+                        self.canli_kirli = true;
                     }
                 }
                 Eylem::NotEkle { konum, metin } => {
@@ -1128,6 +1678,18 @@ impl NodeTuvali {
             }
         }
     }
+}
+
+/// Bir noktanın bir doğru parçasına (a→b) en kısa uzaklığı (kablo vuruş testi için).
+fn nokta_segment_mesafe(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let uzunluk2 = ab.x * ab.x + ab.y * ab.y;
+    if uzunluk2 <= f32::EPSILON {
+        return (p - a).length();
+    }
+    let t = (((p - a).x * ab.x + (p - a).y * ab.y) / uzunluk2).clamp(0.0, 1.0);
+    let proj = Pos2::new(a.x + ab.x * t, a.y + ab.y * t);
+    (p - proj).length()
 }
 
 /// Reddedilen bir bağlantı için kullanıcıya gösterilecek anlık uyarı metni (yerelleştirilmiş).
@@ -1329,5 +1891,140 @@ mod tests {
         assert!(t.yinelenebilir_mi());
         t.yinele();
         assert_eq!(t.graf.nodelar().len(), 1);
+    }
+
+    // ── Çalıştırma (Gün 21) ───────────────────────────────────────────────
+
+    #[test]
+    fn senkron_calistirma_durumu_uygular() {
+        let mut t = NodeTuvali::ornek(); // dizi_oku → hizala → varyant
+        t.calistir_simdi();
+        {
+            let sonuc = t.son_sonuc.as_ref().unwrap();
+            assert_eq!(sonuc.hesaplanan, 3);
+            assert_eq!(sonuc.hata_sayisi, 0);
+            // Kablo önizlemesi dolu.
+            assert_eq!(sonuc.baglanti_onizleme.len(), 2);
+        }
+        // Grafiğe uygulandı → hepsi Bitti.
+        assert!(t
+            .graf
+            .nodelar()
+            .iter()
+            .all(|n| n.durum == NodeDurumu::Bitti));
+    }
+
+    #[test]
+    fn ikinci_calistirma_onbellekten() {
+        let mut t = NodeTuvali::ornek();
+        t.calistir_simdi();
+        t.calistir_simdi();
+        let s2 = t.son_sonuc.as_ref().unwrap();
+        assert_eq!(
+            s2.onbellekten_atlanan, 3,
+            "değişmeyen akış önbellekten gelir"
+        );
+        assert_eq!(s2.hesaplanan, 0);
+    }
+
+    #[test]
+    fn arka_plan_calistirma_tamamlanir() {
+        // Arka plan thread + kare-başı yoklama → iş donmadan tamamlanmalı.
+        let mut t = NodeTuvali::ornek();
+        t.calistir_baslat();
+        assert!(t.calisiyor_mu());
+        let ctx = egui::Context::default();
+        let baslangic = std::time::Instant::now();
+        while t.calisiyor_mu() && baslangic.elapsed().as_secs() < 5 {
+            t.calistirmayi_yokla(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!t.calisiyor_mu(), "arka plan işi tamamlanmalı");
+        let sonuc = t.son_sonuc.as_ref().unwrap();
+        assert_eq!(sonuc.hesaplanan, 3);
+    }
+
+    #[test]
+    fn eklenti_sdk_node_kaydi_calisir() {
+        use biocraft_sdk::node::{AkisDeger, NodeCalistirici, NodeKaydi, NodeTanimi, Parametreler};
+        // Bir "eklenti" node'u SDK üzerinden kaydeder.
+        struct EklentiNode;
+        impl NodeCalistirici for EklentiNode {
+            fn calistir(
+                &self,
+                _g: &[AkisDeger],
+                _p: &Parametreler,
+            ) -> Result<Vec<AkisDeger>, String> {
+                Ok(vec![AkisDeger::yeni("ozel", "eklenti çıktısı", 42, 100)])
+            }
+        }
+        let mut t = NodeTuvali::yeni("ana");
+        t.node_kaydet(NodeKaydi::yeni(
+            NodeTanimi {
+                kimlik: "eklenti.ozel".into(),
+                baslik: "Özel Eklenti".into(),
+                kategori: "Eklenti".into(),
+                aciklama: String::new(),
+                portlar: vec![],
+                parametreler: vec![],
+            },
+            std::sync::Arc::new(EklentiNode),
+        ));
+        // Grafa o türden bir node ekle (katalogda olmasa da çalıştırıcı kayıtlı).
+        let k = t.graf.yeni_node_kimlik();
+        t.graf.node_ekle_ham(super::super::graph::Node {
+            kimlik: k,
+            tur_kimligi: "eklenti.ozel".into(),
+            baslik: "Özel".into(),
+            konum: (0.0, 0.0),
+            girisler: vec![],
+            cikislar: vec![crate::node::port::Port::yeni("c", "ozel")],
+            durum: NodeDurumu::Bekliyor,
+        });
+        t.calistir_simdi();
+        let sonuc = t.son_sonuc.as_ref().unwrap();
+        assert_eq!(sonuc.hesaplanan, 1);
+        assert_eq!(sonuc.node_sonuclari[&k].ciktilar[0].eleman, 42);
+    }
+
+    #[test]
+    fn bcflow_kaydet_yukle_tuval_uzerinden() {
+        let t = NodeTuvali::ornek();
+        let metin = t.bcflow_metni();
+        let mut t2 = NodeTuvali::yeni("baska");
+        t2.bcflow_yukle(&metin).unwrap();
+        assert_eq!(t2.graf.nodelar().len(), t.graf.nodelar().len());
+        assert_eq!(t2.graf.baglantilar().len(), t.graf.baglantilar().len());
+    }
+
+    #[test]
+    fn disa_aktarmalar_uretilir() {
+        let t = NodeTuvali::ornek();
+        let svg = t.svg_metni(&Tokenlar::koyu(), Dil::Tr);
+        assert!(svg.contains("</svg>"));
+        let png = t.png_baytlari(&Tokenlar::koyu(), 1.0);
+        assert_eq!(&png[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        let py = t.python_metni();
+        assert!(py.contains("def calistir():"));
+    }
+
+    #[test]
+    fn calistirma_kontrollu_kare_panik_yapmaz() {
+        // Araç çubuğu çalıştırma satırı + sonuç özeti çizilirken panik olmamalı.
+        let mut t = NodeTuvali::ornek();
+        let _ = t.calistir_simdi();
+        t.secili_baglanti = t.graf.baglantilar().first().map(|b| b.kimlik);
+        kare_ciz(
+            &mut t,
+            Dil::Tr,
+            &Tokenlar::koyu(),
+            egui::RawInput::default(),
+        );
+        kare_ciz(
+            &mut t,
+            Dil::En,
+            &Tokenlar::acik(),
+            egui::RawInput::default(),
+        );
     }
 }

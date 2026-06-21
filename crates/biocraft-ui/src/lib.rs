@@ -8,6 +8,12 @@
 // MK-40: L4 katmanı — yalnızca L0/L1/L2/L3 katmanlarına bağlı; üst katman yasak.
 // MK-01: UI yığını = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
 
+// İP-16: `ErrorReport` projenin standart, zengin (çok-alanlı) kullanıcı-görünür hata tipidir
+// (~136 bayt).  `.bcflow` yükleme gibi nadir, sıcak-olmayan yollarda bu tipi yalnızca clippy
+// `result_large_err` için `Box`'lamak evrensel hata şemasının ergonomisini bozardı; bu yüzden
+// lint bilinçli kapatılır (biocraft-mem ile aynı gerekçe).
+#![allow(clippy::result_large_err)]
+
 pub mod components;
 pub mod i18n;
 pub mod node;
@@ -33,9 +39,13 @@ pub use components::{
     Skeleton, StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
-// İP-05: Node motoru (görsel akış sistemi) — tuval + tipli portlar + DAG + undo/redo.
+// İP-05: Node motoru (görsel akış sistemi) — tuval + tipli portlar + DAG + undo/redo +
+// paralel/önbellekli çalıştırma + `.bcflow` kayıt + SVG/PNG + node→Python (Gün 21 TAM).
 pub use node::{
-    BaglantiKontrol, NodeDurumu, NodeGraf, NodeKatalogu, NodeKimlik, NodeTuvali, Port, VeriTuru,
+    bcflow_kaydet, bcflow_yukle, calistir as node_calistir, png_disa_aktar, python_disa_aktar,
+    svg_disa_aktar, AkisDeger, BaglantiKontrol, CalismaAyari, CalismaSonucu, IptalJetonu,
+    NodeDurumu, NodeGraf, NodeKatalogu, NodeKaydi, NodeKimlik, NodeTuvali, ParametreDeger,
+    Parametreler, Port, SonucOnbellek, VeriTuru, YurutucuKayit,
 };
 pub use plot::PlotWidget;
 // İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Editor / Bottom / Status + Inspector).
