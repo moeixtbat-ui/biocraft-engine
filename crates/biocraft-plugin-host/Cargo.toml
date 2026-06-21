@@ -12,3 +12,8 @@ biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
 biocraft-ipc   = { path = "../biocraft-ipc" }
 biocraft-mem   = { path = "../biocraft-mem" }
+# Dış bağımlılık sürümleri kökten (workspace.dependencies) sabitlenir — MK-60.
+wasmtime  = { workspace = true }
+toml      = { workspace = true }
+serde     = { workspace = true }   # manifest şeması (Deserialize)
+blake3    = { workspace = true }   # MK-33: AOT önbellek anahtarı + bütünlük

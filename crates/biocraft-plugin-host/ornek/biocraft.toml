@@ -1,0 +1,18 @@
+# Örnek "merhaba" WASM eklentisi manifest'i (İP-07 — Gün 13).
+# Keşif/yükleme/capability gösterimi için kullanılır.
+
+[eklenti]
+kimlik = "biocraft.ornek.merhaba"   # biocraft.<yayinci>.<eklenti>
+ad     = "Merhaba Eklentisi"
+surum  = "0.1.0"
+katman = "wasm"                       # MK-12 Tier-2 (Wasmtime sandbox)
+giris  = "merhaba.wat"                # manifest'e göreli giriş dosyası
+
+[uyumluluk]
+abi          = "0.1"                  # hedeflenen ABI sürümü (MK-14)
+cekirdek_min = "0.1.0"               # uyumlu en düşük çekirdek sürümü
+# cekirdek_max opsiyonel — burada üst sınır yok
+
+[yetkiler]
+# Eklenti dosya erişimi İSTER; ama yalnızca kullanıcı onaylarsa VERİLİR (MK-13, en az yetki).
+istenen = ["fs"]

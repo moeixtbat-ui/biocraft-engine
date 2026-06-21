@@ -102,6 +102,64 @@ impl std::fmt::Display for Version {
     }
 }
 
+impl Version {
+    /// İki sürümün **SemVer uyumlu** olup olmadığını söyler:
+    /// aynı `major` (ana sürüm) = uyumlu.  Eklenti ABI/çekirdek uyum denetiminde
+    /// kullanılır (İP-07: kırıcı değişiklik = major artar → uyumsuz).
+    ///
+    /// Not: `0.x` serisinde her `minor` kırıcı sayılabilir; ancak MVP'de basit
+    /// "aynı major" kuralını uyguluyoruz (ABI'yi baştan `0.1` sabitliyoruz).
+    pub fn uyumlu_mu(&self, diger: &Version) -> bool {
+        self.major == diger.major
+    }
+}
+
+/// `Version` metinden ayrıştırılırken oluşabilecek hata (İP-07 manifest okuma).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VersionAyristirmaHatasi {
+    /// Bölüm sayısı 2 (ana.alt) veya 3 (ana.alt.yama) değil.
+    GecersizBicim,
+    /// Bir bölüm geçerli bir tam sayı değil.
+    GecersizSayi,
+}
+
+impl std::fmt::Display for VersionAyristirmaHatasi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::GecersizBicim => {
+                write!(f, "sürüm biçimi 'ana.alt' veya 'ana.alt.yama' olmalı")
+            }
+            Self::GecersizSayi => write!(f, "sürüm bölümleri tam sayı olmalı"),
+        }
+    }
+}
+
+impl std::error::Error for VersionAyristirmaHatasi {}
+
+impl std::str::FromStr for Version {
+    type Err = VersionAyristirmaHatasi;
+
+    /// "1.2.3" veya "1.2" (yama=0 varsayılır) biçimini ayrıştırır.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parcalar: Vec<&str> = s.trim().split('.').collect();
+        if parcalar.len() != 2 && parcalar.len() != 3 {
+            return Err(VersionAyristirmaHatasi::GecersizBicim);
+        }
+        let say = |p: &str| {
+            p.parse::<u32>()
+                .map_err(|_| VersionAyristirmaHatasi::GecersizSayi)
+        };
+        let major = say(parcalar[0])?;
+        let minor = say(parcalar[1])?;
+        let patch = if parcalar.len() == 3 {
+            say(parcalar[2])?
+        } else {
+            0
+        };
+        Ok(Version::new(major, minor, patch))
+    }
+}
+
 // ─── Veri sınıflandırması ────────────────────────────────────────────────────
 
 /// Bir veri nesnesinin gizlilik/güvenlik sınıfı.
@@ -124,7 +182,7 @@ pub enum DataClassification {
 ///
 /// MK-13: Eklentiler yalnızca talep ettikleri ve kullanıcının onayladığı
 /// capability'leri kullanabilir; sandbox dışı erişim reddedilir.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Capability {
     /// Ağ erişimi (giden/gelen TCP/UDP bağlantısı).
     Net,
@@ -351,6 +409,45 @@ mod tests {
         let json = serde_json::to_string(&v).unwrap();
         let geri: Version = serde_json::from_str(&json).unwrap();
         assert_eq!(v, geri);
+    }
+
+    #[test]
+    fn version_ayristirma_uc_bolum() {
+        let v: Version = "1.2.3".parse().unwrap();
+        assert_eq!(v, Version::new(1, 2, 3));
+    }
+
+    #[test]
+    fn version_ayristirma_iki_bolum_yama_sifir() {
+        let v: Version = "0.1".parse().unwrap();
+        assert_eq!(v, Version::new(0, 1, 0));
+    }
+
+    #[test]
+    fn version_ayristirma_gecersiz_bicim() {
+        assert_eq!(
+            "1".parse::<Version>(),
+            Err(VersionAyristirmaHatasi::GecersizBicim)
+        );
+        assert_eq!(
+            "1.2.3.4".parse::<Version>(),
+            Err(VersionAyristirmaHatasi::GecersizBicim)
+        );
+    }
+
+    #[test]
+    fn version_ayristirma_gecersiz_sayi() {
+        assert_eq!(
+            "1.x.0".parse::<Version>(),
+            Err(VersionAyristirmaHatasi::GecersizSayi)
+        );
+    }
+
+    #[test]
+    fn version_uyumlu_ayni_major() {
+        // Aynı ana sürüm = uyumlu; farklı ana sürüm = uyumsuz (kırıcı).
+        assert!(Version::new(0, 1, 0).uyumlu_mu(&Version::new(0, 9, 5)));
+        assert!(!Version::new(0, 1, 0).uyumlu_mu(&Version::new(1, 0, 0)));
     }
 
     // --- DataClassification ---

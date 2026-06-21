@@ -57,3 +57,14 @@ chrono     = { version = "0.4", features = ["serde"] }
 # MK-24/25/26: donanım izleme (CPU/RAM/sıcaklık) + disk boş alan + donanım profili.
 # NVML (NVIDIA GPU) gerçek entegrasyonu insan-eli/sürücü işidir → MVP'de kanca (bkz. hardware_guard).
 sysinfo    = { version = "0.33", default-features = false, features = ["system", "disk", "component"] }
+# MK-12/MK-18 (İP-07): Tier-2 WASM eklenti sandbox'ı (bellek limiti + CPU fuel).
+# KIRPILMIŞ özellik seti — bilinçli sadeleştirme:
+#   • default-features = false → `cache` (zstd, C derleyici) ve `async` (tokio/fiber/psm asm)
+#     çıkarıldı; böylece SAF Rust derlenir, C/asm derleyicisi GEREKMEZ + build hızlanır.
+#   • cranelift = WASM→makine kodu derleyici; runtime = çalıştırma; wat = metin .wat yükleme;
+#     std = standart kütüphane (no_std'a düşme); anyhow = `wasmtime::Error` (host fonksiyon hataları).
+#     Yerel sinyal-tabanlı trap koruması (sandbox ihlali güvenli yakalanır) `runtime` ile gelir.
+#   • Component Model bu sürümde KAPALI (çekirdek modül kullanıyoruz) → Gün 14+ köprülenir (MK-14).
+wasmtime   = { version = "45.0.2", default-features = false, features = ["cranelift", "runtime", "wat", "std", "anyhow"] }
+# İP-07: eklenti manifest'i (biocraft.toml) ayrıştırma — saf Rust, permissive lisans.
+toml       = "1.1.2"

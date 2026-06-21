@@ -1,0 +1,1 @@
+BioCraft örnek veri dosyası — eklenti VFS üzerinden okur.

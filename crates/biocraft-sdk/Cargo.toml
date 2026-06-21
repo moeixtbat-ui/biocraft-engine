@@ -9,3 +9,8 @@ description = "BioCraft Engine — L1: Eklenti SDK'sı ve ortak yardımcılar (M
 # MK-40: L1 — yalnızca L0 (biocraft-types) katmanına bağlı; üst katmanlara bağlantı yasak.
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
+# Kontrat tipleri serileştirilebilir (manifest/IPC üzerinden taşınır).
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

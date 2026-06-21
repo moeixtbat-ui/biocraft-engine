@@ -9,3 +9,8 @@ description = "BioCraft Engine — L1: IPC/gRPC/Arrow Flight köprüleri (MK-39,
 # MK-40: L1 — yalnızca L0 (biocraft-types) katmanına bağlı; üst katmanlara bağlantı yasak.
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
+# Çağrı/yanıt zarfı serileştirilebilir (kontrol kanalı + Tier-3 subprocess).
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
