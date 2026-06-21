@@ -54,8 +54,8 @@ pub use durum_komutlari::{
 pub use history::{AnlikGoruntu, YerelGecmis, VARSAYILAN_GECMIS_DERINLIGI};
 pub use recovery::KurtarmaKarari;
 pub use state::{
-    AcikSekme, AktifModSecimi, DilSecimi, KabukDurumu, PanelDurumu, PencereDurumu, TemaSecimi,
-    UygulamaDurumu, DURUM_SURUMU,
+    AcikSekme, AktifModSecimi, AltSekmeSecimi, BolmeYonuSecimi, DilSecimi, KabukDurumu,
+    PanelDurumu, PencereDurumu, TemaSecimi, UygulamaDurumu, DURUM_SURUMU,
 };
 pub use store::{DosyaDepo, KaliciDepo};
 pub use undo::{GeriAlYigini, VARSAYILAN_DERINLIK};

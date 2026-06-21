@@ -32,10 +32,12 @@ pub use components::{
 };
 pub use i18n::Dil;
 pub use plot::PlotWidget;
-// İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Status).
+// İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Editor / Bottom / Status + Inspector).
 pub use shell::{
-    aktivite_cubugu, baslik_cubugu, durum_cubugu as kabuk_durum_cubugu, yan_panel, ActivityMod,
-    DurumBilgisi, KabukAksiyon,
+    aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, dosya_turu,
+    durum_cubugu as kabuk_durum_cubugu, yan_panel, ActivityMod, AltPanel, AltSekme,
+    BirakmaOnizleme, BolmeYonu, DurumBilgisi, EditorAlani, KabukAksiyon, KapatmaIstegi, Sekme,
+    SekmeGrubu, SekmeTuru,
 };
 pub use tipografi::{fontlari_yukle, metin_stilleri, FontDurumu};
 pub use tokens::{Onem, Tema, Tokenlar};

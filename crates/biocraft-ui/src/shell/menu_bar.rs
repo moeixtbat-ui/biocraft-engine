@@ -22,7 +22,9 @@ pub enum KabukAksiyon {
     YeniProje,
     /// Proje aç (İP-01/02 bağlanınca etkin).
     ProjeAc,
-    /// Kaydet (gerçek belge akışı İP-05/06 ile).
+    /// Yeni editör sekmesi (boş tuval).
+    YeniSekme,
+    /// Kaydet — etkin sekmenin "kaydedilmemiş" işaretini kaldırır (gerçek belge akışı İP-05/06).
     Kaydet,
     /// Uygulamadan çık.
     Cikis,
@@ -38,12 +40,24 @@ pub enum KabukAksiyon {
     DilDegistir,
     /// Side Panel'i aç/kapa.
     YanPanelAcKapa,
+    /// Alt Panel'i (Konsol/İşler/AI/Günlük) aç/kapa.
+    AltPanelAcKapa,
+    /// Inspector'ı (sağ özellik paneli) aç/kapa.
+    InspectorAcKapa,
+    /// Editör/Canvas bölmesini döngüsel değiştir (Yok→Yatay→Dikey).
+    EditoruBol,
+    /// Yoğun/sade mod geçişi.
+    YogunMod,
+    /// Özel düzen yöneticisini aç (kaydet/yükle/sil penceresi).
+    DuzenYonetici,
     /// Komut paletini aç (İP-13 — şimdilik bilgilendirici yer tutucu).
     KomutPaleti,
     // ── Eklenti ──
     /// Eklentileri yönet (İP-07 host'u ile).
     EklentileriYonet,
     // ── Yardım ──
+    /// Bileşen/efekt demolarını (İP-16 galerisi + bellek/2B/3B demoları) merkezde aç/kapa.
+    DemoGalerisi,
     /// Belgeler.
     Belgeler,
     /// Hakkında.
@@ -60,6 +74,8 @@ impl KabukAksiyon {
             (YeniProje, En) => "New Project",
             (ProjeAc, Tr) => "Proje Aç…",
             (ProjeAc, En) => "Open Project…",
+            (YeniSekme, Tr) => "Yeni Sekme",
+            (YeniSekme, En) => "New Tab",
             (Kaydet, Tr) => "Kaydet",
             (Kaydet, En) => "Save",
             (Cikis, Tr) => "Çıkış",
@@ -74,10 +90,22 @@ impl KabukAksiyon {
             (DilDegistir, En) => "Switch Language",
             (YanPanelAcKapa, Tr) => "Yan Paneli Aç/Kapa",
             (YanPanelAcKapa, En) => "Toggle Side Panel",
+            (AltPanelAcKapa, Tr) => "Alt Paneli Aç/Kapa",
+            (AltPanelAcKapa, En) => "Toggle Bottom Panel",
+            (InspectorAcKapa, Tr) => "Inspector'ı Aç/Kapa",
+            (InspectorAcKapa, En) => "Toggle Inspector",
+            (EditoruBol, Tr) => "Editörü Böl (Yatay/Dikey)",
+            (EditoruBol, En) => "Split Editor (Horizontal/Vertical)",
+            (YogunMod, Tr) => "Yoğun / Sade Mod",
+            (YogunMod, En) => "Dense / Compact Mode",
+            (DuzenYonetici, Tr) => "Düzenleri Yönet…",
+            (DuzenYonetici, En) => "Manage Layouts…",
             (KomutPaleti, Tr) => "Komut Paleti…",
             (KomutPaleti, En) => "Command Palette…",
             (EklentileriYonet, Tr) => "Eklentileri Yönet…",
             (EklentileriYonet, En) => "Manage Plugins…",
+            (DemoGalerisi, Tr) => "Bileşen Demoları",
+            (DemoGalerisi, En) => "Component Demos",
             (Belgeler, Tr) => "Belgeler",
             (Belgeler, En) => "Documentation",
             (Hakkinda, Tr) => "Hakkında",
@@ -91,10 +119,13 @@ impl KabukAksiyon {
         match self {
             YeniProje => Some("Ctrl+N"),
             ProjeAc => Some("Ctrl+O"),
+            YeniSekme => Some("Ctrl+T"),
             Kaydet => Some("Ctrl+S"),
             Cikis => Some("Ctrl+Q"),
             GeriAl => Some("Ctrl+Z"),
             Yinele => Some("Ctrl+Y"),
+            AltPanelAcKapa => Some("Ctrl+J"),
+            EditoruBol => Some("Ctrl+\\"),
             KomutPaleti => Some("Ctrl+Shift+P"),
             _ => None,
         }
@@ -106,7 +137,20 @@ impl KabukAksiyon {
         use KabukAksiyon::*;
         matches!(
             self,
-            TemaDegistir | DilDegistir | YanPanelAcKapa | KomutPaleti | Hakkinda | Cikis
+            YeniSekme
+                | Kaydet
+                | TemaDegistir
+                | DilDegistir
+                | YanPanelAcKapa
+                | AltPanelAcKapa
+                | InspectorAcKapa
+                | EditoruBol
+                | YogunMod
+                | DuzenYonetici
+                | DemoGalerisi
+                | KomutPaleti
+                | Hakkinda
+                | Cikis
         )
     }
 }
@@ -145,6 +189,7 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
         Menu::Dosya => &[
             Some(YeniProje),
             Some(ProjeAc),
+            Some(YeniSekme),
             Some(Kaydet),
             None,
             Some(Cikis),
@@ -153,12 +198,19 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
         Menu::Gorunum => &[
             Some(TemaDegistir),
             Some(DilDegistir),
+            None,
             Some(YanPanelAcKapa),
+            Some(AltPanelAcKapa),
+            Some(InspectorAcKapa),
+            Some(EditoruBol),
+            None,
+            Some(YogunMod),
+            Some(DuzenYonetici),
             None,
             Some(KomutPaleti),
         ],
         Menu::Eklenti => &[Some(EklentileriYonet)],
-        Menu::Yardim => &[Some(Belgeler), Some(Hakkinda)],
+        Menu::Yardim => &[Some(DemoGalerisi), None, Some(Belgeler), Some(Hakkinda)],
     }
 }
 
@@ -218,6 +270,7 @@ mod tests {
     const TUM_AKSIYONLAR: &[KabukAksiyon] = &[
         KabukAksiyon::YeniProje,
         KabukAksiyon::ProjeAc,
+        KabukAksiyon::YeniSekme,
         KabukAksiyon::Kaydet,
         KabukAksiyon::Cikis,
         KabukAksiyon::GeriAl,
@@ -225,6 +278,12 @@ mod tests {
         KabukAksiyon::TemaDegistir,
         KabukAksiyon::DilDegistir,
         KabukAksiyon::YanPanelAcKapa,
+        KabukAksiyon::AltPanelAcKapa,
+        KabukAksiyon::InspectorAcKapa,
+        KabukAksiyon::EditoruBol,
+        KabukAksiyon::YogunMod,
+        KabukAksiyon::DuzenYonetici,
+        KabukAksiyon::DemoGalerisi,
         KabukAksiyon::KomutPaleti,
         KabukAksiyon::EklentileriYonet,
         KabukAksiyon::Belgeler,
@@ -253,6 +312,13 @@ mod tests {
         assert!(KabukAksiyon::TemaDegistir.etkin_mi());
         assert!(KabukAksiyon::YanPanelAcKapa.etkin_mi());
         assert!(KabukAksiyon::Cikis.etkin_mi());
+        // Gün-12 kabuk aksiyonları (editör/paneller/düzen) artık işlevsel → etkin.
+        assert!(KabukAksiyon::YeniSekme.etkin_mi());
+        assert!(KabukAksiyon::AltPanelAcKapa.etkin_mi());
+        assert!(KabukAksiyon::InspectorAcKapa.etkin_mi());
+        assert!(KabukAksiyon::EditoruBol.etkin_mi());
+        assert!(KabukAksiyon::YogunMod.etkin_mi());
+        assert!(KabukAksiyon::DuzenYonetici.etkin_mi());
         // İlgili paketi henüz olmayanlar devre dışı (sahte "çalışıyor" yok).
         assert!(!KabukAksiyon::YeniProje.etkin_mi());
         assert!(!KabukAksiyon::EklentileriYonet.etkin_mi());

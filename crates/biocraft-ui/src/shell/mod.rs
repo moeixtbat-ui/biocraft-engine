@@ -19,18 +19,27 @@
 //! DPI/4K/çoklu monitör ölçeklemesi egui `pixels_per_point` ile akıcıdır.
 
 pub mod activity_bar;
+pub mod bottom_panel;
+pub mod editor_area;
 pub mod layout;
 pub mod menu_bar;
 pub mod side_panel;
+pub mod split;
 pub mod status_bar;
 pub mod title_bar;
 
 pub use activity_bar::{aktivite_cubugu, ActivityMod};
+pub use bottom_panel::{alt_panel_ciz, AltPanel, AltSekme};
+pub use editor_area::{
+    birakma_onizleme, dosya_turu, BirakmaOnizleme, EditorAlani, KapatmaIstegi, Sekme, SekmeGrubu,
+    SekmeTuru,
+};
 pub use layout::{
     yan_panel_araligi, yan_panel_sikistir, AKTIVITE_GENISLIK, BASLIK_YUKSEKLIK, DURUM_YUKSEKLIK,
     YAN_PANEL_MAX, YAN_PANEL_MIN, YAN_PANEL_VARSAYILAN,
 };
 pub use menu_bar::{menu_cubugu, KabukAksiyon};
 pub use side_panel::yan_panel;
+pub use split::{bol_boyut, BolmeYonu};
 pub use status_bar::{durum_cubugu, DurumBilgisi};
 pub use title_bar::baslik_cubugu;
