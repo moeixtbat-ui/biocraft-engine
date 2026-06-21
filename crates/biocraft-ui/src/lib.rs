@@ -11,6 +11,7 @@
 pub mod components;
 pub mod i18n;
 pub mod plot;
+pub mod shell;
 pub mod tipografi;
 pub mod tokens;
 
@@ -31,5 +32,10 @@ pub use components::{
 };
 pub use i18n::Dil;
 pub use plot::PlotWidget;
+// İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Status).
+pub use shell::{
+    aktivite_cubugu, baslik_cubugu, durum_cubugu as kabuk_durum_cubugu, yan_panel, ActivityMod,
+    DurumBilgisi, KabukAksiyon,
+};
 pub use tipografi::{fontlari_yukle, metin_stilleri, FontDurumu};
 pub use tokens::{Onem, Tema, Tokenlar};

@@ -15,12 +15,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use biocraft_mem::{
-    profil_cikar, DonanimMuhafiz, DonanimProfili, KoruyucuDurum, OtoAyar, SistemSensoru,
-    TermalEsikler,
+    profil_cikar, DonanimMuhafiz, DonanimProfili, OtoAyar, SistemSensoru, TermalEsikler,
 };
 use biocraft_render::{
-    ornek_top_cubuk, Backend, BackendTercihi, FrameBudget, GpuContext, Kamera3B, KurtarmaPlani,
-    Sahne3B, TdrKurtarma, Tipografi,
+    ornek_top_cubuk, BackendTercihi, FrameBudget, GpuContext, Kamera3B, KurtarmaPlani, Sahne3B,
+    TdrKurtarma, Tipografi,
 };
 // İP-11: self-healing durum altyapısı (kalıcı durum + otomatik kayıt + çökme kurtarma).
 use biocraft_state::{DilSecimi, DosyaDepo, DurumYoneticisi, KurtarmaKarari, TemaSecimi};
@@ -30,7 +29,11 @@ use biocraft_state::{
     PanelGenisligiDegistir, SekmeEkle, SekmeKapat, SurumDamgasi, TemaDegistir, UygulamaDurumu,
     YerelGecmis,
 };
-use biocraft_ui::{Dil, Gallery, StatusBadge, Tema, Tokenlar};
+// İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Status).
+use biocraft_ui::{
+    aktivite_cubugu, baslik_cubugu, kabuk_durum_cubugu, yan_panel, ActivityMod, Dil, DurumBilgisi,
+    Gallery, KabukAksiyon, Tema, Tokenlar,
+};
 
 use egui_wgpu::ScreenDescriptor;
 use winit::application::ApplicationHandler;
@@ -130,9 +133,12 @@ impl Uygulama {
                 tema_durum(sahne.gallery.tema),
                 dil_durum(sahne.gallery.dil),
                 sahne.son_panel_genislik,
+                sahne.aktif_mod.secime(),
+                sahne.yan_panel_acik,
+                sahne.yan_panel_genislik,
             )
         };
-        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w) = okunan;
+        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w, mod_, yan_acik, yan_w) = okunan;
 
         // 2) Değişen bir şey varsa durumu güncelle (kirli işaretle → otomatik kayıt tetiklenir).
         let d = self.yonetici.durum();
@@ -141,7 +147,10 @@ impl Uygulama {
             || d.pencere.genislik != genislik
             || d.pencere.yukseklik != yukseklik
             || d.pencere.buyutulmus != buyutulmus
-            || (d.panel.sag_panel_genislik - panel_w).abs() > 0.5;
+            || (d.panel.sag_panel_genislik - panel_w).abs() > 0.5
+            || d.kabuk.aktif_mod != mod_
+            || d.kabuk.yan_panel_acik != yan_acik
+            || (d.kabuk.yan_panel_genislik - yan_w).abs() > 0.5;
         let simdi = Instant::now();
         if degisti {
             self.yonetici.durum_guncelle(
@@ -152,6 +161,9 @@ impl Uygulama {
                     d.pencere.yukseklik = yukseklik;
                     d.pencere.buyutulmus = buyutulmus;
                     d.panel.sag_panel_genislik = panel_w;
+                    d.kabuk.aktif_mod = mod_;
+                    d.kabuk.yan_panel_acik = yan_acik;
+                    d.kabuk.yan_panel_genislik = yan_w;
                 },
                 simdi,
             );
@@ -212,8 +224,16 @@ struct Sahne {
     son_panel_genislik: f32,
     /// İP-11: açılışta "kurtarılan oturum" bandı gösterilsin mi (çökme sonrası; kullanıcı kapatınca biter).
     kurtarma_sunulacak: bool,
-    /// İP-11 Gün 10: geri-al/yinele + çakışma + yerel geçmiş canlı demosu (sol panel).
+    /// İP-11 Gün 10: geri-al/yinele + çakışma + yerel geçmiş canlı demosu (yüzen pencere).
     duzenleme: DuzenlemeDemo,
+    /// İP-03: Activity Bar'da seçili ana mod (Side Panel içeriğini belirler; kalıcı).
+    aktif_mod: ActivityMod,
+    /// İP-03: Side Panel açık mı (Görünüm → Yan Paneli Aç/Kapa; kalıcı).
+    yan_panel_acik: bool,
+    /// İP-03: Side Panel'in son ölçülen genişliği (kalıcı duruma yazılır → oturumlar arası korunur).
+    yan_panel_genislik: f32,
+    /// İP-03: kabuk aksiyonları için kısa süreli durum bildirimi (örn. "Komut paleti yakında").
+    kabuk_bildirim: Option<(String, Instant)>,
 }
 
 /// İP-11 Gün 10 canlı demo: geri-al/yinele + çakışma tespiti + yerel geçmiş.
@@ -320,6 +340,8 @@ impl ApplicationHandler for Uygulama {
         let kayitli_tema = self.yonetici.durum().tema;
         let kayitli_dil = self.yonetici.durum().dil;
         let kayitli_panel_w = self.yonetici.durum().panel.sag_panel_genislik;
+        // İP-03: kabuk durumu (seçili Activity mod + Side Panel düzeni) geri yüklenir.
+        let kayitli_kabuk = self.yonetici.durum().kabuk;
 
         let pencere = match event_loop.create_window(
             Window::default_attributes()
@@ -455,6 +477,10 @@ impl ApplicationHandler for Uygulama {
             son_panel_genislik: kayitli_panel_w,
             kurtarma_sunulacak: self.kurtarma_karari.kurtarma_mi(),
             duzenleme: DuzenlemeDemo::yeni(),
+            aktif_mod: ActivityMod::secimden(kayitli_kabuk.aktif_mod),
+            yan_panel_acik: kayitli_kabuk.yan_panel_acik,
+            yan_panel_genislik: kayitli_kabuk.yan_panel_genislik,
+            kabuk_bildirim: None,
         });
     }
 
@@ -496,7 +522,11 @@ impl ApplicationHandler for Uygulama {
                     _ => {}
                 }
             }
-            WindowEvent::RedrawRequested => sahne.ciz(),
+            // İP-03: kareyi çiz; menüden "Çıkış" seçildiyse (ciz() == true) temiz kapat + döngüyü kapat.
+            WindowEvent::RedrawRequested if sahne.ciz() => {
+                temiz_kapat_yap(&mut self.yonetici);
+                event_loop.exit();
+            }
             _ => {}
         }
 
@@ -517,20 +547,32 @@ impl ApplicationHandler for Uygulama {
 
 impl Sahne {
     /// Bir kareyi çiz: egui çalıştır → tessellate → wgpu ile sun.  Kare süresi ölçülür (MK-03).
-    fn ciz(&mut self) {
+    ///
+    /// Dönüş: kullanıcı menüden **Çıkış**'ı seçtiyse `true` (çağıran temiz kapatıp döngüyü kapatır).
+    fn ciz(&mut self) -> bool {
         let kare_basi = Instant::now();
 
-        // Süresi dolan TDR bildirimini temizle (~4 sn göster).
+        // Süresi dolan geçici bildirimleri temizle (~4 sn göster): TDR + kabuk aksiyon bildirimi.
         if let Some((_, gosterim)) = &self.tdr_bildirim {
             if gosterim.elapsed() > Duration::from_secs(4) {
                 self.tdr_bildirim = None;
                 self.tdr.bildirim_gosterildi();
             }
         }
+        if let Some((_, gosterim)) = &self.kabuk_bildirim {
+            if gosterim.elapsed() > Duration::from_secs(4) {
+                self.kabuk_bildirim = None;
+            }
+        }
 
         let fps = self.budget.fps();
         let backend = self.gpu.backend();
-        let bildirim = self.tdr_bildirim.as_ref().map(|(m, _)| m.clone());
+        // Status Bar bildirimi: önce TDR (donanım), yoksa kabuk aksiyon bildirimi.
+        let bildirim = self
+            .tdr_bildirim
+            .as_ref()
+            .or(self.kabuk_bildirim.as_ref())
+            .map(|(m, _)| m.clone());
         // İP-08: bağımsız watchdog'un anlık donanım/termal durumu (status bar'da gösterilir).
         let donanim = self.muhafiz.durum();
 
@@ -556,40 +598,70 @@ impl Sahne {
 
         let raw = self.egui_state.take_egui_input(self.pencere.as_ref());
         let dil = self.gallery.dil;
+        let tema = self.gallery.tema;
         let tex_id = self.sahne3b_tex;
         // İP-11: kurtarma bandı + panel genişliği yakalama için yerel değişkenler (kapanıştan sonra okunur).
         let kurtarma = self.kurtarma_sunulacak;
         let panel_varsayilan = self.son_panel_genislik;
+        // İP-03: Side Panel açık mı + geri yüklenecek genişlik (kapanıştan sonra ölçülen yazılır).
+        let yan_acik = self.yan_panel_acik;
+        let yan_varsayilan = self.yan_panel_genislik;
         let mut kurtarma_kapat = false;
         let mut olculen_panel_w = self.son_panel_genislik;
+        let mut olculen_yan_w = self.yan_panel_genislik;
+        // İP-03: bu karede menü/hızlı eylemlerden seçilen kabuk aksiyonu (closure sonrası uygulanır).
+        let mut secilen_aksiyon: Option<KabukAksiyon> = None;
         // Context klonu (ucuz Arc) → kapanış self.gallery'yi ödünç alırken self.egui_ctx çakışmaz.
         let ctx = self.egui_ctx.clone();
         let full = ctx.run(raw, |c| {
-            // TÜM egui yüzeyini token'dan boya (durum çubuğu + 3B panel + galeri aynı karede).
+            // TÜM egui yüzeyini token'dan boya (tüm kabuk bölgeleri + galeri aynı karede — MK-52).
             c.set_visuals(tok.egui_visuals());
-            durum_cubugu(
-                c,
+
+            // ── İP-03 6-bölge kabuk (Gün 11: dört bölge + menü) ──
+            // 1) Title Bar (üst, 32px) + klasik menü + komut paleti tetikleyici + hızlı eylemler.
+            //    Geri Al/Yinele global belge geçmişi henüz yok → devre dışı (false/false).
+            if let Some(a) = baslik_cubugu(c, dil, tema, &tok, false, false) {
+                secilen_aksiyon = Some(a);
+            }
+            // 2) Status Bar (alt, 22px) — canlı FPS/backend/donanım + bağlantı + token + aktif iş.
+            let durum_bilgi = DurumBilgisi {
                 fps,
                 backend,
-                bildirim.as_deref(),
-                &donanim,
-                &self.oto_ayar,
-                dil,
-                &tok,
-            );
+                bildirim: bildirim.as_deref(),
+                donanim: &donanim,
+                oto: &self.oto_ayar,
+                cevrimici: false,   // gerçek ağ İP-15; şimdilik çevrimdışı.
+                token_sayaci: None, // AI yüzeyi (İP-14) bağlanınca dolar.
+                aktif_islem: None,
+            };
+            kabuk_durum_cubugu(c, &durum_bilgi, dil, &tok);
             // İP-11/MK-28: çökme sonrası "kurtarılan oturum" bandı (kullanıcı kapatınca biter).
             if kurtarma && kurtarma_banneri(c, dil, &tok) {
                 kurtarma_kapat = true;
             }
+            // 3) Activity Bar (sol, 48px) — tıklanan mod Side Panel içeriğini değiştirir.
+            aktivite_cubugu(c, &mut self.aktif_mod, dil, &tok);
+            // 4) Side Panel (sol, 200–600px, yeniden boyutlanır) — açık ise moda göre içerik.
+            if yan_acik {
+                olculen_yan_w = yan_panel(c, self.aktif_mod, dil, &tok, yan_varsayilan);
+            }
+
+            // Sağ panel: 3B tuval çıktısı (İP-04); merkez: bileşen galerisi (İP-16, tuval yer tutucu).
             olculen_panel_w = sahne3b_paneli(c, tex_id, en3b, boy3b, dil, &tok, panel_varsayilan);
-            // İP-11 Gün 10: sol panelde geri-al/yinele + çakışma + yerel geçmiş canlı demosu.
+            // İP-11 Gün 10: geri-al/yinele demosu — yüzen pencere (kabuk düzenini bozmaz).
             duzenleme_paneli(c, &mut self.duzenleme, dil, &tok);
             self.gallery.show(c);
         });
-        // Panel genişliğini sakla (kalıcı duruma yazılır) + kullanıcı kapattıysa bandı gizle.
+        // Panel genişliklerini sakla (kalıcı duruma yazılır) + kullanıcı kapattıysa bandı gizle.
         self.son_panel_genislik = olculen_panel_w;
+        self.yan_panel_genislik = olculen_yan_w;
         if kurtarma_kapat {
             self.kurtarma_sunulacak = false;
+        }
+        // İP-03: seçilen kabuk aksiyonunu uygula (tema/dil/panel/çıkış); çıkış istendiyse bildir.
+        let mut cikis_istendi = false;
+        if let Some(a) = secilen_aksiyon {
+            cikis_istendi = self.kabuk_aksiyon_uygula(a);
         }
 
         self.egui_state
@@ -606,12 +678,12 @@ impl Sahne {
             Err(wgpu::SurfaceError::OutOfMemory) => {
                 log::error!("Yüzey belleği tükendi → cihaz kurtarma deneniyor.");
                 self.cihaz_kurtar();
-                return;
+                return cikis_istendi;
             }
             Err(hata) => {
                 log::debug!("Yüzey hatası ({hata:?}) → tazeleniyor, kare atlanıyor.");
                 self.gpu.yuzey_tazele();
-                return;
+                return cikis_istendi;
             }
         };
         let view = cikis
@@ -682,6 +754,51 @@ impl Sahne {
         } else {
             self.budget.bosta();
         }
+        cikis_istendi
+    }
+
+    /// İP-03: bir kabuk aksiyonunu (menü/hızlı eylem) uygular.  Dönüş: **Çıkış** seçildiyse `true`.
+    ///
+    /// Tema/dil değişimi `gallery` üzerinden yapılır (kalıcı duruma `senkron_ve_kaydet` yazar);
+    /// böylece hem menü hem hızlı eylem hem de ileride komut paleti aynı tek davranışa bağlanır.
+    fn kabuk_aksiyon_uygula(&mut self, aksiyon: KabukAksiyon) -> bool {
+        let tr = matches!(self.gallery.dil, Dil::Tr);
+        match aksiyon {
+            KabukAksiyon::TemaDegistir => self.gallery.tema = self.gallery.tema.sonraki(),
+            KabukAksiyon::DilDegistir => {
+                self.gallery.dil = match self.gallery.dil {
+                    Dil::Tr => Dil::En,
+                    Dil::En => Dil::Tr,
+                };
+            }
+            KabukAksiyon::YanPanelAcKapa => self.yan_panel_acik = !self.yan_panel_acik,
+            KabukAksiyon::KomutPaleti => {
+                self.kabuk_bildirim = Some((
+                    if tr {
+                        "Komut paleti İP-13'te gelecek (güç kullanıcı yolu)."
+                    } else {
+                        "Command palette arrives in İP-13 (power-user path)."
+                    }
+                    .to_string(),
+                    Instant::now(),
+                ));
+            }
+            KabukAksiyon::Hakkinda => {
+                self.kabuk_bildirim = Some((
+                    if tr {
+                        "BioCraft Engine — İP-03 ana kabuk (Gün 11)."
+                    } else {
+                        "BioCraft Engine — İP-03 main shell (Day 11)."
+                    }
+                    .to_string(),
+                    Instant::now(),
+                ));
+            }
+            KabukAksiyon::Cikis => return true,
+            // Henüz ilgili paketi olmayan aksiyonlar menüde devre dışıdır; buraya düşmezler.
+            _ => {}
+        }
+        false
     }
 
     /// 'T' tuşu: GPU sürücü çökmesini (TDR/DeviceLost) simüle eder.
@@ -776,99 +893,6 @@ impl Sahne {
     }
 }
 
-/// Alt durum çubuğu: FPS + backend + **donanım göstergesi (İP-08)** + TDR bildirimi.
-/// Donanım göstergesi: CPU%/sıcaklık + termal aksiyon (soğutuluyor/acil) + düşük-donanım uyarısı.
-/// Renkler token'dan gelir (MK-52).
-#[allow(clippy::too_many_arguments)]
-fn durum_cubugu(
-    ctx: &egui::Context,
-    fps: f32,
-    backend: Backend,
-    bildirim: Option<&str>,
-    donanim: &KoruyucuDurum,
-    oto: &OtoAyar,
-    dil: Dil,
-    tok: &Tokenlar,
-) {
-    egui::TopBottomPanel::bottom("biocraft_durum").show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(format!("FPS: {fps:.0}"));
-            ui.separator();
-            ui.label(format!("Backend: {}", backend.etiket()));
-            if backend.yazilim_mi() {
-                ui.separator();
-                ui.colored_label(tok.renk.uyari, "⚠ Yazılım (CPU) modu — performans sınırlı");
-            }
-
-            // İP-08: donanım göstergesi (CPU/GPU/RAM/sıcaklık).
-            ui.separator();
-            if donanim.koruma_etkin {
-                ui.label(format!("🌡 {}", sicaklik_ozeti(donanim)));
-            } else {
-                // Sensör yok → koruma kademeli devre dışı (çökme değil, bilgi).
-                ui.colored_label(tok.renk.uyari, "🌡 Sensör yok — termal koruma kapalı");
-            }
-
-            // Düşük donanım: sadeleşme + uyarı (MK-26).
-            if oto.sadelesme {
-                ui.separator();
-                ui.colored_label(
-                    tok.renk.uyari,
-                    format!(
-                        "⚙ Düşük donanım ({}) — sadeleştirildi · {} FPS",
-                        oto.sinif.ad(),
-                        oto.hedef_fps
-                    ),
-                );
-            }
-
-            ui.separator();
-            ui.weak("T: GPU çökmesi · I/O: ısı simülasyonu · Esc: çıkış");
-
-            // Sağ taraf: termal rozet/uyarı + TDR bildirimi.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(b) = bildirim {
-                    ui.colored_label(tok.renk.basari, format!("✔ {b}"));
-                    ui.separator();
-                }
-                if donanim.acil_durum {
-                    ui.colored_label(tok.renk.hata, "⛔ ACİL DURDU — kritik sıcaklık");
-                } else if donanim.sogutuluyor {
-                    let _ = StatusBadge::Sogutuluyor.show(ui, dil, tok);
-                } else if let biocraft_mem::TermalAksiyon::YukAzalt(p) = donanim.aksiyon {
-                    ui.colored_label(tok.renk.uyari, format!("⏬ Termal: yük %{p}"));
-                }
-            });
-        });
-    });
-}
-
-/// Watchdog örneğinden kısa "GPU 82°C · CPU 70°C · CPU %45" özeti üretir (mevcut değerler).
-fn sicaklik_ozeti(donanim: &KoruyucuDurum) -> String {
-    let o = &donanim.son_ornek;
-    let mut parcalar: Vec<String> = Vec::new();
-    if let Some(t) = o.gpu_c {
-        parcalar.push(format!("GPU {t:.0}°C"));
-    }
-    if let Some(t) = o.cpu_c {
-        parcalar.push(format!("CPU {t:.0}°C"));
-    }
-    if let Some(t) = o.nvme_c {
-        parcalar.push(format!("NVMe {t:.0}°C"));
-    }
-    if let Some(p) = o.cpu_yuzde {
-        parcalar.push(format!("CPU %{p:.0}"));
-    }
-    if let Some(r) = o.ram_orani {
-        parcalar.push(format!("RAM %{:.0}", r * 100.0));
-    }
-    if parcalar.is_empty() {
-        "ölçülüyor…".to_string()
-    } else {
-        parcalar.join(" · ")
-    }
-}
-
 /// Sağ panel: 3B off-screen sahnenin (top-çubuk) canlı dokusunu gösterir + kısa açıklama.
 ///
 /// İP-11: `varsayilan_genislik` geri yüklenen panel genişliğidir (ilk karede uygulanır); panelin
@@ -951,23 +975,28 @@ fn kurtarma_banneri(ctx: &egui::Context, dil: Dil, tok: &Tokenlar) -> bool {
     kapat
 }
 
-/// İP-11 Gün 10: sol panelde geri-al/yinele + çakışma tespiti + yerel geçmiş canlı demosu.
+/// İP-11 Gün 10: geri-al/yinele + çakışma tespiti + yerel geçmiş canlı demosu.
 ///
 /// Kabul kriterlerini ekranda gösterir: (1) örnek işlem → çok-adımlı geri-al/yinele;
 /// (2) her komut tek depoya dokunur (MK-37); (3) aynı dosya iki yerde değişince çakışma uyarısı;
 /// (4) zaman damgalı geçmiş listesi.  Renkler token'dan (MK-52).
+///
+/// İP-03'ten itibaren ana kabuğun (Activity + Side Panel) sol kenarıyla çakışmaması için **yüzen
+/// pencere** olarak çizilir; varsayılan kapalı (başlık çubuğu) — kullanıcı açıp inceleyebilir.
 fn duzenleme_paneli(ctx: &egui::Context, demo: &mut DuzenlemeDemo, dil: Dil, tok: &Tokenlar) {
     let tr = matches!(dil, Dil::Tr);
-    egui::SidePanel::left("biocraft_duzenleme")
-        .resizable(true)
+    let baslik = if tr {
+        "Geri Al / Yinele (İP-11)"
+    } else {
+        "Undo / Redo (İP-11)"
+    };
+    egui::Window::new(baslik)
+        .id(egui::Id::new("biocraft_duzenleme")) // dil değişince konum/sırrı korunsun (sabit id).
+        .default_open(false)
+        .default_pos(egui::pos2(360.0, 88.0))
         .default_width(290.0)
+        .resizable(true)
         .show(ctx, |ui| {
-            ui.add_space(tok.bosluk.s);
-            ui.heading(if tr {
-                "Geri Al / Yinele (İP-11)"
-            } else {
-                "Undo / Redo (İP-11)"
-            });
             ui.label(
                 egui::RichText::new(if tr {
                     "Kum-havuzu model — gerçek oturumu etkilemez."

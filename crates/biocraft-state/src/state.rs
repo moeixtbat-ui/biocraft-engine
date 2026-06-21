@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 
 /// Durum şemasının sürümü.  İleride alan ekl/değişince artırılır; [`UygulamaDurumu::serde_oku`]
 /// eski sürümleri yükseltir (MK-38: göç).
-pub const DURUM_SURUMU: u32 = 1;
+///
+/// Sürüm 2 (İP-03): 6-bölge kabuk durumu eklendi ([`KabukDurumu`]).
+pub const DURUM_SURUMU: u32 = 2;
 
 /// Görünüm teması seçimi (nötr; UI'daki `Tema` ile eşlenir).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -80,6 +82,52 @@ impl Default for PanelDurumu {
     }
 }
 
+/// Activity Bar'da seçili ana mod (nötr; UI'daki `ActivityMod` ile eşlenir).
+///
+/// 6-bölge kabuğun (İP-03) Activity Bar'ı bu modu değiştirir; mod, Side Panel içeriğini
+/// belirler.  L2 katmanı UI tiplerine bağlanamayacağından (MK-40) burada nötr tutulur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AktifModSecimi {
+    /// Proje gezgini (varsayılan).
+    #[default]
+    Proje,
+    /// Eklenti yönetimi.
+    Eklentiler,
+    /// Arama.
+    Arama,
+    /// AI yüzeyi.
+    Ai,
+    /// Veritabanı.
+    Veritabani,
+    /// Ayarlar.
+    Ayar,
+}
+
+/// 6-bölge kabuğun (İP-03) kalıcı durumu: seçili Activity mod + Side Panel düzeni.
+///
+/// Side Panel genişliği oturumlar arası korunur (kabul kriteri: "kapatıp açınca kalıcı").
+/// Genişlik UI tarafında `[YAN_PANEL_MIN, YAN_PANEL_MAX]` aralığına sıkıştırılır.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct KabukDurumu {
+    /// Activity Bar'da seçili ana mod.
+    pub aktif_mod: AktifModSecimi,
+    /// Sol (Activity'ye komşu) Side Panel açık mı?
+    pub yan_panel_acik: bool,
+    /// Side Panel genişliği — mantıksal piksel.
+    pub yan_panel_genislik: f32,
+}
+
+impl Default for KabukDurumu {
+    fn default() -> Self {
+        Self {
+            aktif_mod: AktifModSecimi::default(),
+            yan_panel_acik: true,
+            // İP-03 / 0.9 tablosu: 200–600 px aralığı, makul bir başlangıç genişliği.
+            yan_panel_genislik: 260.0,
+        }
+    }
+}
+
 /// Açık bir sekme/belge.  6-bölge kabuk (İP-03) ve düzenleyiciler (İP-05/06) gelince bu
 /// listeyi doldurur; bugün model hazır, gerçek dosya/sekme akışı sonra bağlanır.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +155,12 @@ pub struct UygulamaDurumu {
     pub dil: DilSecimi,
     /// Panel düzeni (boyut/görünürlük).
     pub panel: PanelDurumu,
+    /// 6-bölge kabuk durumu (Activity mod + Side Panel düzeni — İP-03).
+    ///
+    /// `#[serde(default)]`: sürüm 1 (kabuksuz) kayıtlar bu alan olmadan da okunur; eksikse
+    /// varsayılan kabuk durumu kullanılır (MK-38: ileri/geri uyum).
+    #[serde(default)]
+    pub kabuk: KabukDurumu,
     /// Açık sekmeler/belgeler.
     pub sekmeler: Vec<AcikSekme>,
     /// Etkin sekmenin `sekmeler` içindeki dizini.
@@ -123,6 +177,7 @@ impl Default for UygulamaDurumu {
             tema: TemaSecimi::default(),
             dil: DilSecimi::default(),
             panel: PanelDurumu::default(),
+            kabuk: KabukDurumu::default(),
             sekmeler: Vec::new(),
             aktif_sekme: None,
             tercihler: BTreeMap::new(),

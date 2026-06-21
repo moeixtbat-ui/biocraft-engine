@@ -54,7 +54,8 @@ pub use durum_komutlari::{
 pub use history::{AnlikGoruntu, YerelGecmis, VARSAYILAN_GECMIS_DERINLIGI};
 pub use recovery::KurtarmaKarari;
 pub use state::{
-    AcikSekme, DilSecimi, PanelDurumu, PencereDurumu, TemaSecimi, UygulamaDurumu, DURUM_SURUMU,
+    AcikSekme, AktifModSecimi, DilSecimi, KabukDurumu, PanelDurumu, PencereDurumu, TemaSecimi,
+    UygulamaDurumu, DURUM_SURUMU,
 };
 pub use store::{DosyaDepo, KaliciDepo};
 pub use undo::{GeriAlYigini, VARSAYILAN_DERINLIK};
@@ -342,6 +343,25 @@ mod tests {
         let d = UygulamaDurumu::serde_oku(json).unwrap();
         assert_eq!(d.surum, DURUM_SURUMU, "eski sürüm güncel damgaya taşınmalı");
         assert_eq!(d.tema, TemaSecimi::Acik);
+        // İP-03: sürüm 1 (kabuksuz) kayıt → kabuk alanı varsayılana düşmeli (göç uyumu).
+        assert_eq!(d.kabuk, KabukDurumu::default());
+        assert_eq!(d.kabuk.aktif_mod, AktifModSecimi::Proje);
+        assert!(d.kabuk.yan_panel_acik);
+    }
+
+    #[test]
+    fn kabuk_durumu_serde_gidis_donus() {
+        // İP-03: seçili Activity mod + Side Panel genişliği oturumlar arası korunmalı.
+        let mut d = UygulamaDurumu::default();
+        d.kabuk.aktif_mod = AktifModSecimi::Veritabani;
+        d.kabuk.yan_panel_genislik = 420.0;
+        d.kabuk.yan_panel_acik = false;
+        let baytlar = d.serde_yaz().unwrap();
+        let geri = UygulamaDurumu::serde_oku(&baytlar).unwrap();
+        assert_eq!(geri.kabuk.aktif_mod, AktifModSecimi::Veritabani);
+        assert_eq!(geri.kabuk.yan_panel_genislik, 420.0);
+        assert!(!geri.kabuk.yan_panel_acik);
+        assert_eq!(d, geri);
     }
 
     // ── autosave: zamanlama politikası (sahte saat) ────────────────────────
