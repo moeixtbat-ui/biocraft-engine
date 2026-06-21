@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use biocraft_mem::{
-    profil_cikar, DonanimMuhafiz, DonanimProfili, OtoAyar, SistemSensoru, TermalEsikler,
+    profil_cikar, DonanimMuhafiz, DonanimProfili, DonanimSinifi, OtoAyar, SistemSensoru,
+    TermalEsikler,
 };
 // İP-01: açılış istemcisi (Epic-benzeri launcher) — son projeler, haber, donanım ön-kontrol, splash.
 use biocraft_launcher::{
@@ -42,7 +43,8 @@ use biocraft_ui::components::{ConfirmDialog, OnayKarari};
 use biocraft_ui::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu, yan_panel,
     ActivityMod, AltPanel, AltSekme, BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery,
-    KabukAksiyon, KapatmaIstegi, SekmeTuru, Tema, Tokenlar,
+    KabukAksiyon, KapatmaIstegi, ProjeSihirbazi, SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema,
+    Tokenlar,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -331,6 +333,8 @@ struct Sahne {
     launcher: LauncherDurumu,
     /// Launcher'ın kalıcı dosyaları (son projeler + haber önbelleği) için atomik depo.
     launcher_depo: DosyaDepo,
+    /// İP-02: açıksa proje sihirbazı (launcher üstüne tam-ekran çizilir).  `None` = kapalı.
+    sihirbaz: Option<ProjeSihirbazi>,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -643,6 +647,7 @@ impl ApplicationHandler for Uygulama {
             app_mod,
             launcher,
             launcher_depo,
+            sihirbaz: None,
         });
     }
 
@@ -1113,6 +1118,10 @@ impl Sahne {
     /// Arayüz **asla bloklanmaz**: haber kanalı her karede `try_recv` ile yoklanır (gelmemişse
     /// iskelet çizilir, gelince dolar).  Splash görünürken yalnızca splash çizilir (E8).
     fn ciz_acilis(&mut self) -> AcilisSonuc {
+        // İP-02: proje sihirbazı açıksa launcher yerine tam-ekran sihirbazı çiz.
+        if self.sihirbaz.is_some() {
+            return self.ciz_sihirbaz();
+        }
         let kare_basi = Instant::now();
         let simdi_inst = Instant::now();
 
@@ -1168,6 +1177,58 @@ impl Sahne {
         self.launcher_eylem_uygula(eylem)
     }
 
+    /// İP-02: proje sihirbazı karesini çizer + sonucunu uygular.
+    ///
+    /// "İptal" → temiz çıkış (dosya yok), launcher'a dön.  "Oluştur" → taslak loglanır; gerçek
+    /// dosya kurulumu (klasör + `biocraft.toml` + BLAKE3) Gün 17'de `biocraft-data`'da yapılacak,
+    /// şimdilik motor kabuğuna geçilir.  "İndir" → eklenti indirme yönlendirmesi, sihirbaz açık kalır.
+    fn ciz_sihirbaz(&mut self) -> AcilisSonuc {
+        let kare_basi = Instant::now();
+        let tok = self.gallery.aktif_tokenlar();
+        let zemin_lin = egui::Rgba::from(tok.renk.zemin).to_array();
+        let dil = self.gallery.dil;
+        let raw = self.egui_state.take_egui_input(self.pencere.as_ref());
+        let ctx = self.egui_ctx.clone();
+        let mut sonuc: Option<SihirbazSonucu> = None;
+        let full = ctx.run(raw, |c| {
+            c.set_visuals(tok.egui_visuals());
+            if let Some(w) = self.sihirbaz.as_mut() {
+                sonuc = w.ciz(c, dil, &tok);
+            }
+        });
+        self.kareyi_sun(full, zemin_lin, kare_basi);
+        self.pencere.request_redraw();
+
+        match sonuc {
+            Some(SihirbazSonucu::Iptal) => {
+                // İptal temiz: sihirbaz dosya sistemine dokunmadığından kalıntı yoktur.
+                self.sihirbaz = None;
+                log::info!("Proje sihirbazı iptal edildi (temiz çıkış; dosya oluşturulmadı).");
+                AcilisSonuc::Devam
+            }
+            Some(SihirbazSonucu::Olustur(taslak)) => {
+                self.sihirbaz = None;
+                log::info!(
+                    "Proje taslağı hazır: ad='{}' konum='{}' şablon={:?} sınıf={:?} \
+                     şifreli={} ai_havuzu={} (gerçek kurulum Gün 17 — biocraft-data).",
+                    taslak.ad,
+                    taslak.konum.display(),
+                    taslak.sablon,
+                    taslak.siniflandirma,
+                    taslak.sifreleme,
+                    taslak.ai_havuzu_katki,
+                );
+                AcilisSonuc::MotoraGec
+            }
+            Some(SihirbazSonucu::EklentiIndir(url)) => {
+                // Eklenti indirme platforma-özel ince adaptör (İP-15); sihirbaz açık kalır.
+                log::info!("Dağıtık ağ eklentisi indirme yönlendirmesi: {url} (İP-15).");
+                AcilisSonuc::Devam
+            }
+            None => AcilisSonuc::Devam,
+        }
+    }
+
     /// İP-01: launcher eylemini uygular; uygulamanın bir sonraki durumunu döndürür.
     fn launcher_eylem_uygula(&mut self, eylem: Option<LauncherEylem>) -> AcilisSonuc {
         let Some(eylem) = eylem else {
@@ -1188,10 +1249,17 @@ impl Sahne {
                 log::info!("Motor başlatma argümanları: {:?}", args.argv());
                 AcilisSonuc::MotoraGec
             }
-            // İP-02 proje sihirbazı/dosya seçici sonra; MVP'de doğrudan motor kabuğuna geçilir.
+            // İP-02: proje sihirbazını aç (akıllı varsayılan: düşük donanımda akış modu — MK-05/09).
             LauncherEylem::YeniProje => {
-                log::info!("Yeni Proje (İP-02 sihirbazı sonra) → motor kabuğu açılıyor.");
-                AcilisSonuc::MotoraGec
+                let baglam = SihirbazBaglam {
+                    dusuk_ram: self.launcher.donanim.sinif == DonanimSinifi::Dusuk,
+                    // Dağıtık ağ eklentisi henüz yok (İP-15) → sihirbazda [İndir] yönlendirmesi çıkar.
+                    dagitik_eklenti_kurulu: false,
+                    varsayilan_konum: std::env::current_dir().unwrap_or_default(),
+                };
+                self.sihirbaz = Some(ProjeSihirbazi::yeni(baglam));
+                log::info!("Yeni Proje sihirbazı açıldı (İP-02).");
+                AcilisSonuc::Devam
             }
             LauncherEylem::ProjeAc => {
                 log::info!("Proje Aç (dosya seçici İP-02) → motor kabuğu açılıyor.");

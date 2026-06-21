@@ -14,6 +14,7 @@ pub mod plot;
 pub mod shell;
 pub mod tipografi;
 pub mod tokens;
+pub mod wizard;
 
 // egui'yi yeniden dışa aktar: üst katmanlar (launcher/app) sürüm uyumu için
 // `biocraft_ui::egui` üzerinden erişebilir.
@@ -41,3 +42,7 @@ pub use shell::{
 };
 pub use tipografi::{fontlari_yukle, metin_stilleri, FontDurumu};
 pub use tokens::{Onem, Tema, Tokenlar};
+// İP-02: Proje Sihirbazı (çok adımlı yeni-proje akışı + veri sınıflandırma zorunlu).
+pub use wizard::{
+    ProjeSablonu, ProjeSihirbazi, ProjeTaslagi, SihirbazAdim, SihirbazBaglam, SihirbazSonucu,
+};
