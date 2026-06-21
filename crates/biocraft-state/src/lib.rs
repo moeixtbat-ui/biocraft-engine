@@ -1,7 +1,7 @@
-//! biocraft-state — L2: Uygulama durumu, otomatik kayıt, çökme kurtarma (MK-28, MK-37, MK-38).
+//! biocraft-state — L2: Uygulama durumu, otomatik kayıt, çökme kurtarma, geri-al/yinele
+//! (MK-28, MK-36, MK-37, MK-38).
 //!
-//! İş kaybını önleyen **self-healing durum altyapısı** (İP-11'in durum/kayıt/kurtarma yarısı;
-//! Undo/Redo Gün 10'da `undo.rs`/`command.rs`/`history.rs` ile gelecek).  Üç güvence:
+//! İş kaybını önleyen **self-healing durum altyapısı** (İP-11).  Güvenceler:
 //! - **Kalıcı durum (MK-38):** Açık sekmeler, panel boyutları, görünüm (tema), dil/tercih ayrı bir
 //!   yapıda ([`UygulamaDurumu`]) tutulur ve her açılışta geri yüklenir (egui immediate-mode olduğu
 //!   için kalıcı durum ekrandan ayrı yaşamak zorundadır).
@@ -9,8 +9,15 @@
 //!   ve **BLAKE3 bütünlük** mühürlü yazılır ([`store`]) → yarım yazma/bozulma olmaz.
 //! - **Çökme kurtarma (MK-28 kural 2/3):** Temiz-kapanış bayrağıyla çökme tespit edilir
 //!   ([`recovery`]); çökme sonrası açılışta "kurtarılan oturum" sunulur, durum yine yüklenir.
+//! - **Geri-al / yinele (MK-36):** Düzenlenebilir **her** işlem bir ters-işlemli [`command::Komut`]
+//!   olarak ifade edilir; [`undo::GeriAlYigini`] çok-adımlı geçmiş tutar.  Genel arayüz: sonraki
+//!   paketler (node/kod/ayar/görünüm) kendi modelleriyle aynı motoru kullanır.
+//! - **Çakışma tespiti (madde 18):** Aynı dosya iki yerde değişirse [`conflict`] uyarır ve sürüm
+//!   seçimi sunar (sessiz ezme yok).
+//! - **Yerel geçmiş:** Zaman damgalı anlık görüntüler ([`history`]; temel düzey, git sonra).
 //!
-//! MK-37: Her yazma **tek mantıksal depoya** dokunur; "çok-depoda tek atomik işlem" vaat edilmez.
+//! MK-37: Her yazma/komut **tek mantıksal depoya** dokunur; "çok-depoda tek atomik işlem" vaat
+//! edilmez ([`command::BirlesikKomut`] farklı depoları birleştirmeyi reddeder).
 //! MK-40: L2 — yalnızca L0/L1'e bağlı; üst katman yasak.
 
 // İP-16 standart hata şeması `ErrorReport` bilinçli olarak zengindir (ne/neden/çözüm + teknik
@@ -23,20 +30,42 @@ pub use biocraft_sdk;
 pub use biocraft_types;
 
 pub mod autosave;
+pub mod command;
+pub mod conflict;
+pub mod durum_komutlari;
+pub mod history;
 pub mod recovery;
 pub mod state;
 pub mod store;
+pub mod undo;
 
 use std::time::Instant;
 
-use biocraft_types::ErrorReport;
+use biocraft_types::{ErrorReport, Timestamp};
 
 pub use autosave::OtomatikKayit;
+pub use command::{BirlesikKomut, DepoKimligi, Komut};
+pub use conflict::{
+    damgala, CakismaBilgisi, CakismaIzleyici, CakismaKarari, CozumSecimi, SurumDamgasi,
+};
+pub use durum_komutlari::{
+    DilDegistir, PanelGenisligiDegistir, SekmeEkle, SekmeKapat, TemaDegistir, DEPO_UYGULAMA_DURUMU,
+};
+pub use history::{AnlikGoruntu, YerelGecmis, VARSAYILAN_GECMIS_DERINLIGI};
 pub use recovery::KurtarmaKarari;
 pub use state::{
     AcikSekme, DilSecimi, PanelDurumu, PencereDurumu, TemaSecimi, UygulamaDurumu, DURUM_SURUMU,
 };
 pub use store::{DosyaDepo, KaliciDepo};
+pub use undo::{GeriAlYigini, VARSAYILAN_DERINLIK};
+
+/// Şu anki UTC zaman damgası — yerel geçmiş/çakışma damgaları için tek geçit.
+///
+/// Çekirdek mantık zaman damgasını **dışarıdan** alır (sahte saatle test edilebilirlik); host bu
+/// yardımcıyı çağırarak gerçek saati enjekte eder (böylece üst katmanlar `chrono`'ya bağlanmaz).
+pub fn simdi() -> Timestamp {
+    chrono::Utc::now()
+}
 
 /// Kalıcı uygulama durumunun depo anahtarı.
 pub const ANAHTAR_DURUM: &str = "uygulama_durumu";

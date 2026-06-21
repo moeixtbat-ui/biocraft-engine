@@ -24,6 +24,12 @@ use biocraft_render::{
 };
 // İP-11: self-healing durum altyapısı (kalıcı durum + otomatik kayıt + çökme kurtarma).
 use biocraft_state::{DilSecimi, DosyaDepo, DurumYoneticisi, KurtarmaKarari, TemaSecimi};
+// İP-11 Gün 10: geri-al/yinele motoru + çakışma tespiti + yerel geçmiş (canlı demo).
+use biocraft_state::{
+    simdi, AcikSekme, CakismaBilgisi, CakismaIzleyici, CakismaKarari, GeriAlYigini, Komut,
+    PanelGenisligiDegistir, SekmeEkle, SekmeKapat, SurumDamgasi, TemaDegistir, UygulamaDurumu,
+    YerelGecmis,
+};
 use biocraft_ui::{Dil, Gallery, StatusBadge, Tema, Tokenlar};
 
 use egui_wgpu::ScreenDescriptor;
@@ -206,6 +212,101 @@ struct Sahne {
     son_panel_genislik: f32,
     /// İP-11: açılışta "kurtarılan oturum" bandı gösterilsin mi (çökme sonrası; kullanıcı kapatınca biter).
     kurtarma_sunulacak: bool,
+    /// İP-11 Gün 10: geri-al/yinele + çakışma + yerel geçmiş canlı demosu (sol panel).
+    duzenleme: DuzenlemeDemo,
+}
+
+/// İP-11 Gün 10 canlı demo: geri-al/yinele + çakışma tespiti + yerel geçmiş.
+///
+/// Kalıcı (gerçek) durumdan **ayrı** bir "kum havuzu" model üzerinde çalışır; böylece geri-al/yinele
+/// gösterimi gerçek oturumu (klavye tema döngüsü vb.) etkilemez.  Aynı genel motor
+/// ([`biocraft_state`]) kullanılır: sonraki paketler (node/kod/ayar) bu kalıbı kendi modelleriyle
+/// aynen tekrarlar.
+struct DuzenlemeDemo {
+    /// Üzerinde düzenleme yapılan kum-havuzu model (gerçek kalıcı durumdan ayrı).
+    durum: UygulamaDurumu,
+    /// Çok-adımlı geri-al/yinele motoru (MK-36).
+    yigin: GeriAlYigini<UygulamaDurumu>,
+    /// Zaman damgalı yerel geçmiş (anlık görüntüler).
+    gecmis: YerelGecmis,
+    /// Çakışma tespiti için taban sürüm izleyici (madde 18).
+    izleyici: CakismaIzleyici,
+    /// Şu an çözüm bekleyen çakışma (varsa → sürüm seçimi sunulur, sessiz ezme yok).
+    aktif_cakisma: Option<CakismaBilgisi>,
+    /// "Başka pencere/araç diske yazdı" senaryosunu taklit eden içerik (çakışma demosu).
+    disk_icerik: Option<Vec<u8>>,
+    /// Eklenen sekmelere benzersiz ad vermek için sayaç.
+    sekme_sayac: u32,
+    /// Son işlemin kısa bildirimi (panelde gösterilir).
+    son_mesaj: Option<String>,
+}
+
+/// Demo kum-havuzu modelinin mantıksal depo yolu (çakışma izleme anahtarı).
+const DEMO_YOL: &str = "demo.bcproj";
+
+impl DuzenlemeDemo {
+    fn yeni() -> Self {
+        let durum = UygulamaDurumu::default();
+        let mut izleyici = CakismaIzleyici::yeni();
+        // Taban sürüm: mevcut içerik (yükleme anı) — çakışma karşılaştırmasının referansı.
+        if let Ok(baytlar) = durum.serde_yaz() {
+            izleyici.taban_kaydet(DEMO_YOL, SurumDamgasi::yeni(&baytlar, simdi()));
+        }
+        Self {
+            durum,
+            yigin: GeriAlYigini::yeni(),
+            gecmis: YerelGecmis::yeni(),
+            izleyici,
+            aktif_cakisma: None,
+            disk_icerik: None,
+            sekme_sayac: 0,
+            son_mesaj: None,
+        }
+    }
+
+    /// Bir komutu kum-havuzu modele uygular (geri-al yığınına ekler).
+    fn calistir(&mut self, komut: Box<dyn Komut<UygulamaDurumu>>) {
+        let aciklama = komut.aciklama();
+        match self.yigin.calistir(&mut self.durum, komut) {
+            Ok(()) => self.son_mesaj = Some(aciklama),
+            Err(e) => self.son_mesaj = Some(format!("Hata: {}", e.ne_oldu)),
+        }
+    }
+
+    /// Bir sonraki temayı döngüsel seçer (Koyu→Açık→YüksekKontrast→Koyu).
+    fn sonraki_tema(t: TemaSecimi) -> TemaSecimi {
+        match t {
+            TemaSecimi::Koyu => TemaSecimi::Acik,
+            TemaSecimi::Acik => TemaSecimi::YuksekKontrast,
+            TemaSecimi::YuksekKontrast => TemaSecimi::Koyu,
+        }
+    }
+
+    /// "Kaydet" denemesi: yazmadan önce çakışma denetimi (sessiz ezme yok — madde 18).
+    fn kaydet_dene(&mut self) {
+        let Some(taban) = self.izleyici.taban(DEMO_YOL).cloned() else {
+            return;
+        };
+        // Diskteki güncel sürüm: başka yazıcı varsa onun içeriği, yoksa taban (disk değişmemiş).
+        let diskteki = match &self.disk_icerik {
+            Some(b) => SurumDamgasi::yeni(b, simdi()),
+            None => taban,
+        };
+        match self.izleyici.yazmadan_once(DEMO_YOL, &diskteki) {
+            CakismaKarari::GuvenliYaz => {
+                if let Ok(b) = self.durum.serde_yaz() {
+                    self.izleyici
+                        .taban_kaydet(DEMO_YOL, SurumDamgasi::yeni(&b, simdi()));
+                    self.gecmis.anlik_al("Kayıt", &b, simdi());
+                }
+                self.son_mesaj = Some("Güvenle kaydedildi (çakışma yok)".to_string());
+            }
+            CakismaKarari::Cakisma(bilgi) => {
+                self.son_mesaj = Some("ÇAKIŞMA: aynı dosya iki yerde değişti".to_string());
+                self.aktif_cakisma = Some(bilgi);
+            }
+        }
+    }
 }
 
 impl ApplicationHandler for Uygulama {
@@ -353,6 +454,7 @@ impl ApplicationHandler for Uygulama {
             oto_ayar,
             son_panel_genislik: kayitli_panel_w,
             kurtarma_sunulacak: self.kurtarma_karari.kurtarma_mi(),
+            duzenleme: DuzenlemeDemo::yeni(),
         });
     }
 
@@ -480,6 +582,8 @@ impl Sahne {
                 kurtarma_kapat = true;
             }
             olculen_panel_w = sahne3b_paneli(c, tex_id, en3b, boy3b, dil, &tok, panel_varsayilan);
+            // İP-11 Gün 10: sol panelde geri-al/yinele + çakışma + yerel geçmiş canlı demosu.
+            duzenleme_paneli(c, &mut self.duzenleme, dil, &tok);
             self.gallery.show(c);
         });
         // Panel genişliğini sakla (kalıcı duruma yazılır) + kullanıcı kapattıysa bandı gizle.
@@ -845,6 +949,300 @@ fn kurtarma_banneri(ctx: &egui::Context, dil: Dil, tok: &Tokenlar) -> bool {
         ui.add_space(tok.bosluk.xs);
     });
     kapat
+}
+
+/// İP-11 Gün 10: sol panelde geri-al/yinele + çakışma tespiti + yerel geçmiş canlı demosu.
+///
+/// Kabul kriterlerini ekranda gösterir: (1) örnek işlem → çok-adımlı geri-al/yinele;
+/// (2) her komut tek depoya dokunur (MK-37); (3) aynı dosya iki yerde değişince çakışma uyarısı;
+/// (4) zaman damgalı geçmiş listesi.  Renkler token'dan (MK-52).
+fn duzenleme_paneli(ctx: &egui::Context, demo: &mut DuzenlemeDemo, dil: Dil, tok: &Tokenlar) {
+    let tr = matches!(dil, Dil::Tr);
+    egui::SidePanel::left("biocraft_duzenleme")
+        .resizable(true)
+        .default_width(290.0)
+        .show(ctx, |ui| {
+            ui.add_space(tok.bosluk.s);
+            ui.heading(if tr {
+                "Geri Al / Yinele (İP-11)"
+            } else {
+                "Undo / Redo (İP-11)"
+            });
+            ui.label(
+                egui::RichText::new(if tr {
+                    "Kum-havuzu model — gerçek oturumu etkilemez."
+                } else {
+                    "Sandbox model — does not affect the real session."
+                })
+                .color(tok.renk.metin_soluk)
+                .small(),
+            );
+            ui.separator();
+
+            // (1) Örnek düzenleme işlemleri (her biri geri-alınabilir tek-depo komutu).
+            ui.label(if tr { "İşlemler:" } else { "Operations:" });
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(if tr { "🎨 Tema" } else { "🎨 Theme" }).clicked() {
+                    let yeni = DuzenlemeDemo::sonraki_tema(demo.durum.tema);
+                    let k = Box::new(TemaDegistir::yeni(&demo.durum, yeni));
+                    demo.calistir(k);
+                }
+                if ui.button(if tr { "➕ Sekme" } else { "➕ Tab" }).clicked() {
+                    demo.sekme_sayac += 1;
+                    let ad = format!("belge-{}.fasta", demo.sekme_sayac);
+                    let k = Box::new(SekmeEkle::yeni(AcikSekme {
+                        yol: None,
+                        baslik: ad,
+                        kaydedilmemis: true,
+                    }));
+                    demo.calistir(k);
+                }
+                if ui.button(if tr { "➖ Sekme" } else { "➖ Tab" }).clicked()
+                    && !demo.durum.sekmeler.is_empty()
+                {
+                    let son = demo.durum.sekmeler.len() - 1;
+                    let k = Box::new(SekmeKapat::yeni(son));
+                    demo.calistir(k);
+                }
+                if ui.button("↔ Panel").clicked() {
+                    let yeni = (demo.durum.panel.sag_panel_genislik + 40.0).min(600.0);
+                    let k = Box::new(PanelGenisligiDegistir::yeni(&demo.durum, yeni));
+                    demo.calistir(k);
+                }
+            });
+
+            ui.add_space(tok.bosluk.xs);
+            // (1) Çok-adımlı geri-al / yinele.
+            ui.horizontal(|ui| {
+                let ga = demo.yigin.geri_alinabilir_mi();
+                let yi = demo.yigin.yinelenebilir_mi();
+                if ui
+                    .add_enabled(
+                        ga,
+                        egui::Button::new(if tr { "↶ Geri Al" } else { "↶ Undo" }),
+                    )
+                    .clicked()
+                {
+                    let _ = demo.yigin.geri_al(&mut demo.durum);
+                    demo.son_mesaj = Some(if tr { "Geri alındı" } else { "Undone" }.to_string());
+                }
+                if ui
+                    .add_enabled(
+                        yi,
+                        egui::Button::new(if tr { "↷ Yinele" } else { "↷ Redo" }),
+                    )
+                    .clicked()
+                {
+                    let _ = demo.yigin.yinele(&mut demo.durum);
+                    demo.son_mesaj = Some(if tr { "Yinelendi" } else { "Redone" }.to_string());
+                }
+            });
+            if let Some(a) = demo.yigin.sonraki_geri_al() {
+                ui.label(
+                    egui::RichText::new(format!("↶ {a}"))
+                        .small()
+                        .color(tok.renk.metin_soluk),
+                );
+            }
+
+            ui.add_space(tok.bosluk.xs);
+            ui.separator();
+            // Kum-havuzu modelin güncel durumu.
+            ui.label(format!(
+                "{}: {:?}  ·  {}: {}  ·  {}: {:.0}",
+                if tr { "Tema" } else { "Theme" },
+                demo.durum.tema,
+                if tr { "Sekme" } else { "Tabs" },
+                demo.durum.sekmeler.len(),
+                "Panel",
+                demo.durum.panel.sag_panel_genislik,
+            ));
+
+            // Komut geçmişi (geri-al yığını).
+            ui.collapsing(
+                if tr {
+                    "Komut geçmişi"
+                } else {
+                    "Command history"
+                },
+                |ui| {
+                    let liste = demo.yigin.gecmis_aciklamalari();
+                    if liste.is_empty() {
+                        ui.weak(if tr { "(boş)" } else { "(empty)" });
+                    }
+                    for (i, a) in liste.iter().enumerate() {
+                        ui.label(format!("{}. {a}", i + 1));
+                    }
+                },
+            );
+
+            // (4) Zaman damgalı yerel geçmiş (anlık görüntüler).
+            ui.collapsing(
+                if tr {
+                    "Yerel geçmiş (anlık görüntüler)"
+                } else {
+                    "Local history (snapshots)"
+                },
+                |ui| {
+                    if demo.gecmis.bos_mu() {
+                        ui.weak(if tr {
+                            "(henüz yok — Kaydet veya 📸)"
+                        } else {
+                            "(none yet — Save or 📸)"
+                        });
+                    }
+                    for g in demo.gecmis.listele() {
+                        ui.label(format!("🕑 {} — {}", g.zaman.format("%H:%M:%S"), g.etiket));
+                    }
+                },
+            );
+            if ui
+                .button(if tr {
+                    "📸 Anlık görüntü al"
+                } else {
+                    "📸 Take snapshot"
+                })
+                .clicked()
+            {
+                if let Ok(b) = demo.durum.serde_yaz() {
+                    demo.gecmis
+                        .anlik_al(if tr { "Elle" } else { "Manual" }, &b, simdi());
+                }
+            }
+
+            ui.add_space(tok.bosluk.xs);
+            ui.separator();
+            // (3) Çakışma tespiti: aynı dosya iki yerde değişince uyarı (sessiz ezme yok).
+            ui.label(if tr {
+                "Çakışma denetimi (madde 18):"
+            } else {
+                "Conflict check (item 18):"
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button(if tr {
+                        "⚠ Başka yerde değiştir"
+                    } else {
+                        "⚠ Edit elsewhere"
+                    })
+                    .clicked()
+                {
+                    let mut sahte = demo.durum.clone();
+                    sahte.sekmeler.push(AcikSekme {
+                        yol: None,
+                        baslik: "dış-değişiklik".to_string(),
+                        kaydedilmemis: false,
+                    });
+                    if let Ok(b) = sahte.serde_yaz() {
+                        demo.disk_icerik = Some(b);
+                        demo.son_mesaj = Some(
+                            if tr {
+                                "Disk başka yerde değişti (simüle)"
+                            } else {
+                                "Disk changed elsewhere (simulated)"
+                            }
+                            .to_string(),
+                        );
+                    }
+                }
+                if ui
+                    .button(if tr { "💾 Kaydet" } else { "💾 Save" })
+                    .clicked()
+                {
+                    demo.kaydet_dene();
+                }
+            });
+
+            // Çakışma varsa: sürüm seçimi sun (sessiz ezme YOK).
+            if let Some(bilgi) = demo.aktif_cakisma.clone() {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.colored_label(
+                        tok.renk.hata,
+                        if tr {
+                            "⛔ Çakışma: dosya siz düzenlerken başka yerde değişti."
+                        } else {
+                            "⛔ Conflict: file changed elsewhere while editing."
+                        },
+                    );
+                    ui.label(format!(
+                        "{}: {}",
+                        if tr { "Dosya" } else { "File" },
+                        bilgi.yol
+                    ));
+                    ui.label(
+                        egui::RichText::new(if tr {
+                            "Hangi sürüm korunsun?"
+                        } else {
+                            "Which version to keep?"
+                        })
+                        .small(),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        if ui
+                            .button(if tr { "Bizimkini yaz" } else { "Keep ours" })
+                            .clicked()
+                        {
+                            if let Ok(b) = demo.durum.serde_yaz() {
+                                demo.izleyici
+                                    .taban_kaydet(DEMO_YOL, SurumDamgasi::yeni(&b, simdi()));
+                                demo.gecmis.anlik_al(
+                                    if tr {
+                                        "Çözüm (bizim)"
+                                    } else {
+                                        "Resolved (ours)"
+                                    },
+                                    &b,
+                                    simdi(),
+                                );
+                            }
+                            demo.disk_icerik = None;
+                            demo.aktif_cakisma = None;
+                            demo.son_mesaj = Some(
+                                if tr {
+                                    "Bizim sürüm yazıldı"
+                                } else {
+                                    "Ours written"
+                                }
+                                .to_string(),
+                            );
+                        }
+                        if ui
+                            .button(if tr { "Diski koru" } else { "Keep disk" })
+                            .clicked()
+                        {
+                            if let Some(b) = demo.disk_icerik.clone() {
+                                if let Ok(d) = UygulamaDurumu::serde_oku(&b) {
+                                    demo.durum = d;
+                                    demo.yigin.temizle(); // model komple değişti → geçmiş geçersiz.
+                                    demo.izleyici
+                                        .taban_kaydet(DEMO_YOL, SurumDamgasi::yeni(&b, simdi()));
+                                }
+                            }
+                            demo.disk_icerik = None;
+                            demo.aktif_cakisma = None;
+                            demo.son_mesaj = Some(
+                                if tr {
+                                    "Disk sürümü korundu"
+                                } else {
+                                    "Disk version kept"
+                                }
+                                .to_string(),
+                            );
+                        }
+                        if ui.button(if tr { "İptal" } else { "Cancel" }).clicked() {
+                            demo.aktif_cakisma = None;
+                            demo.son_mesaj =
+                                Some(if tr { "İptal edildi" } else { "Cancelled" }.to_string());
+                        }
+                    });
+                });
+            }
+
+            if let Some(m) = demo.son_mesaj.clone() {
+                ui.add_space(tok.bosluk.xs);
+                ui.colored_label(tok.renk.basari, format!("ⓘ {m}"));
+            }
+        });
 }
 
 // ─── İP-11: durum eşleme + konum yardımcıları ────────────────────────────────
