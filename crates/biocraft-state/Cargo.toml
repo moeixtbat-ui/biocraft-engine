@@ -4,9 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
-description = "BioCraft Engine — L2: Uygulama state, otomatik kayıt, undo/redo (MK-36, MK-38, MK-40)"
+description = "BioCraft Engine — L2: Uygulama state, otomatik kayıt, kurtarma, undo/redo (MK-28, MK-37, MK-38, MK-40)"
 
 # MK-40: L2 — yalnızca L0/L1 katmanlarına bağlı; üst katmanlara bağlantı yasak.
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
+
+# Kalıcı durumun serileştirilmesi (JSON) + bütünlük (BLAKE3) + tanılama (log).
+serde      = { workspace = true }
+serde_json = { workspace = true }
+blake3     = { workspace = true }
+log        = { workspace = true }

@@ -17,6 +17,8 @@ biocraft-render = { path = "../biocraft-render" }
 biocraft-ui     = { path = "../biocraft-ui" }
 # İP-08: donanım koruma watchdog'u + auto-tune + disk koruması (L5→L2).
 biocraft-mem    = { path = "../biocraft-mem" }
+# İP-11: self-healing durum altyapısı — kalıcı durum + otomatik kayıt + çökme kurtarma (L5→L2).
+biocraft-state  = { path = "../biocraft-state" }
 
 # MK-01: pencere + egui↔wgpu köprüsü host katmanındadır (render egui'ye bağlı değil).
 winit      = { workspace = true }

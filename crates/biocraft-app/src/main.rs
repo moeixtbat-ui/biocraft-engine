@@ -10,6 +10,7 @@
 //! Render altyapısı (cihaz/kuyruk/kurtarma/bütçe) [`biocraft_render`]'dadır; egui↔wgpu çizim
 //! köprüsü bu host katmanındadır (MK-40: render egui'ye bağlı değildir).
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -21,7 +22,9 @@ use biocraft_render::{
     ornek_top_cubuk, Backend, BackendTercihi, FrameBudget, GpuContext, Kamera3B, KurtarmaPlani,
     Sahne3B, TdrKurtarma, Tipografi,
 };
-use biocraft_ui::{Dil, Gallery, StatusBadge, Tokenlar};
+// İP-11: self-healing durum altyapısı (kalıcı durum + otomatik kayıt + çökme kurtarma).
+use biocraft_state::{DilSecimi, DosyaDepo, DurumYoneticisi, KurtarmaKarari, TemaSecimi};
+use biocraft_ui::{Dil, Gallery, StatusBadge, Tema, Tokenlar};
 
 use egui_wgpu::ScreenDescriptor;
 use winit::application::ApplicationHandler;
@@ -77,15 +80,99 @@ struct Uygulama {
     /// `--emulate-min`: düşük donanım profilini taklit et (MK-26).
     emulate_min: bool,
     durum: Option<Sahne>,
+    /// İP-11: self-healing durum yöneticisi (kalıcı durum + otomatik kayıt + kurtarma).
+    yonetici: DurumYoneticisi,
+    /// İP-11: açılışta önceki oturumun düzgün kapanıp kapanmadığı kararı (çökme kurtarma).
+    kurtarma_karari: KurtarmaKarari,
 }
 
 impl Uygulama {
     fn yeni(tercih: BackendTercihi, emulate_min: bool) -> Self {
+        // İP-11/MK-38: kalıcı durumu disk üzerinde (kullanıcı veri klasörü) tut.
+        let dizin = durum_dizini();
+        log::info!("Durum klasörü: {}", dizin.display());
+        let depo = Box::new(DosyaDepo::yeni(&dizin));
+        let (yonetici, kurtarma_karari) = DurumYoneticisi::ac(depo, Instant::now());
+        if kurtarma_karari.kurtarma_mi() {
+            log::warn!(
+                "Önceki oturum düzgün kapanmamış → açılışta 'kurtarılan oturum' sunulacak (MK-28)."
+            );
+        }
         Self {
             tercih,
             emulate_min,
             durum: None,
+            yonetici,
+            kurtarma_karari,
         }
+    }
+
+    /// Arayüzden türeyen kalıcı durumu (tema/dil/pencere/panel) yöneticiyle eşitler ve
+    /// otomatik kayıt zamanı geldiyse diske yazar (MK-38: periyodik + değişiklikte).
+    fn senkron_ve_kaydet(&mut self) {
+        // 1) Arayüzün güncel durumunu oku (Sahne ödünç alımı bu blokta biter).
+        let okunan = {
+            let Some(sahne) = self.durum.as_ref() else {
+                return;
+            };
+            let olcek = sahne.pencere.scale_factor() as f32;
+            let boyut = sahne.pencere.inner_size();
+            (
+                (boyut.width as f32 / olcek).round() as u32,
+                (boyut.height as f32 / olcek).round() as u32,
+                sahne.pencere.is_maximized(),
+                tema_durum(sahne.gallery.tema),
+                dil_durum(sahne.gallery.dil),
+                sahne.son_panel_genislik,
+            )
+        };
+        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w) = okunan;
+
+        // 2) Değişen bir şey varsa durumu güncelle (kirli işaretle → otomatik kayıt tetiklenir).
+        let d = self.yonetici.durum();
+        let degisti = d.tema != tema
+            || d.dil != dil
+            || d.pencere.genislik != genislik
+            || d.pencere.yukseklik != yukseklik
+            || d.pencere.buyutulmus != buyutulmus
+            || (d.panel.sag_panel_genislik - panel_w).abs() > 0.5;
+        let simdi = Instant::now();
+        if degisti {
+            self.yonetici.durum_guncelle(
+                |d| {
+                    d.tema = tema;
+                    d.dil = dil;
+                    d.pencere.genislik = genislik;
+                    d.pencere.yukseklik = yukseklik;
+                    d.pencere.buyutulmus = buyutulmus;
+                    d.panel.sag_panel_genislik = panel_w;
+                },
+                simdi,
+            );
+        }
+
+        // 3) Otomatik kayıt zamanı geldiyse yaz (sessizce başarısız olma — MK-28 kural 3).
+        if let Err(e) = self.yonetici.belki_kaydet(simdi) {
+            log::warn!(
+                "Otomatik kayıt başarısız: {} [{}]",
+                e.neden,
+                e.correlation_id.kisa()
+            );
+        }
+    }
+}
+
+/// Düzgün kapanış: durumu kaydet + oturumu "temiz" işaretle (sonraki açılışta kurtarma sunulmaz).
+///
+/// Serbest fonksiyondur: yalnızca `DurumYoneticisi`'ne dokunur; böylece pencere olayı sırasında
+/// `Sahne` (= `&mut self.durum`) ödünç alınmışken bile (ayrık alan) güvenle çağrılabilir.
+fn temiz_kapat_yap(yonetici: &mut DurumYoneticisi) {
+    if let Err(e) = yonetici.temiz_kapat(Instant::now()) {
+        log::warn!(
+            "Kapanışta durum kaydedilemedi: {} [{}]",
+            e.neden,
+            e.correlation_id.kisa()
+        );
     }
 }
 
@@ -115,6 +202,10 @@ struct Sahne {
     simule_sicaklik: Option<f32>,
     /// İP-08: başlangıçta donanıma göre otomatik ayar (düşük donanımda sadeleşme + uyarı).
     oto_ayar: OtoAyar,
+    /// İP-11: sağ panelin son ölçülen genişliği (kalıcı duruma yazılır → oturumlar arası korunur).
+    son_panel_genislik: f32,
+    /// İP-11: açılışta "kurtarılan oturum" bandı gösterilsin mi (çökme sonrası; kullanıcı kapatınca biter).
+    kurtarma_sunulacak: bool,
 }
 
 impl ApplicationHandler for Uygulama {
@@ -123,10 +214,19 @@ impl ApplicationHandler for Uygulama {
             return; // yalnızca bir kez kur (masaüstünde resumed tek kez tetiklenir).
         }
 
+        // İP-11/MK-38: kalıcı durumdan pencere boyutu/maksimize + tema/dil/panel geri yüklenir.
+        let kayitli_pencere = self.yonetici.durum().pencere;
+        let kayitli_tema = self.yonetici.durum().tema;
+        let kayitli_dil = self.yonetici.durum().dil;
+        let kayitli_panel_w = self.yonetici.durum().panel.sag_panel_genislik;
+
         let pencere = match event_loop.create_window(
             Window::default_attributes()
                 .with_title("BioCraft Engine — İP-04 Render Host")
-                .with_inner_size(LogicalSize::new(1280.0, 800.0)),
+                .with_inner_size(LogicalSize::new(
+                    kayitli_pencere.genislik as f64,
+                    kayitli_pencere.yukseklik as f64,
+                )),
         ) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -135,6 +235,10 @@ impl ApplicationHandler for Uygulama {
                 return;
             }
         };
+        // Önceki oturum maksimize bırakılmışsa geri yükle.
+        if kayitli_pencere.buyutulmus {
+            pencere.set_maximized(true);
+        }
 
         let gpu = match GpuContext::yeni(pencere.clone(), self.tercih) {
             Ok(g) => g,
@@ -225,13 +329,18 @@ impl ApplicationHandler for Uygulama {
             checkpoint,
         );
 
+        // Galeri geri yüklenen görünüm (tema) + dil ile başlar (MK-38: oturumlar arası kalıcı).
+        let mut gallery = Gallery::new();
+        gallery.tema = tema_ui(kayitli_tema);
+        gallery.dil = dil_ui(kayitli_dil);
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
             egui_ctx,
             egui_state,
             egui_renderer,
-            gallery: Gallery::new(),
+            gallery,
             budget: FrameBudget::varsayilan(),
             tdr: TdrKurtarma::yeni(),
             tdr_bildirim: None,
@@ -242,6 +351,8 @@ impl ApplicationHandler for Uygulama {
             simulasyon,
             simule_sicaklik: None,
             oto_ayar,
+            son_panel_genislik: kayitli_panel_w,
+            kurtarma_sunulacak: self.kurtarma_karari.kurtarma_mi(),
         });
     }
 
@@ -256,7 +367,12 @@ impl ApplicationHandler for Uygulama {
             .on_window_event(sahne.pencere.as_ref(), &event);
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            // İP-11: kapanışta durumu kaydet + oturumu "temiz" işaretle (kurtarma çökme-dışı çıkmasın).
+            // `self.yonetici` alanına doğrudan erişilir (sahne = &mut self.durum ile ayrık alan).
+            WindowEvent::CloseRequested => {
+                temiz_kapat_yap(&mut self.yonetici);
+                event_loop.exit();
+            }
             WindowEvent::Resized(boyut) => {
                 sahne.gpu.yeniden_boyutla(boyut.width, boyut.height);
                 sahne.pencere.request_redraw();
@@ -271,7 +387,10 @@ impl ApplicationHandler for Uygulama {
                     Key::Character("i" | "I") => sahne.isi_simule_yukselt(),
                     // 'O' → simülasyonu kapat (gerçek sensöre dön).
                     Key::Character("o" | "O") => sahne.isi_simule_kapat(),
-                    Key::Named(NamedKey::Escape) => event_loop.exit(),
+                    Key::Named(NamedKey::Escape) => {
+                        temiz_kapat_yap(&mut self.yonetici);
+                        event_loop.exit();
+                    }
                     _ => {}
                 }
             }
@@ -289,6 +408,8 @@ impl ApplicationHandler for Uygulama {
         if let Some(sahne) = self.durum.as_ref() {
             sahne.pencere.request_redraw();
         }
+        // İP-11/MK-38: arayüz durumunu (tema/dil/pencere/panel) eşitle + otomatik kayıt.
+        self.senkron_ve_kaydet();
     }
 }
 
@@ -334,6 +455,11 @@ impl Sahne {
         let raw = self.egui_state.take_egui_input(self.pencere.as_ref());
         let dil = self.gallery.dil;
         let tex_id = self.sahne3b_tex;
+        // İP-11: kurtarma bandı + panel genişliği yakalama için yerel değişkenler (kapanıştan sonra okunur).
+        let kurtarma = self.kurtarma_sunulacak;
+        let panel_varsayilan = self.son_panel_genislik;
+        let mut kurtarma_kapat = false;
+        let mut olculen_panel_w = self.son_panel_genislik;
         // Context klonu (ucuz Arc) → kapanış self.gallery'yi ödünç alırken self.egui_ctx çakışmaz.
         let ctx = self.egui_ctx.clone();
         let full = ctx.run(raw, |c| {
@@ -349,9 +475,18 @@ impl Sahne {
                 dil,
                 &tok,
             );
-            sahne3b_paneli(c, tex_id, en3b, boy3b, dil, &tok);
+            // İP-11/MK-28: çökme sonrası "kurtarılan oturum" bandı (kullanıcı kapatınca biter).
+            if kurtarma && kurtarma_banneri(c, dil, &tok) {
+                kurtarma_kapat = true;
+            }
+            olculen_panel_w = sahne3b_paneli(c, tex_id, en3b, boy3b, dil, &tok, panel_varsayilan);
             self.gallery.show(c);
         });
+        // Panel genişliğini sakla (kalıcı duruma yazılır) + kullanıcı kapattıysa bandı gizle.
+        self.son_panel_genislik = olculen_panel_w;
+        if kurtarma_kapat {
+            self.kurtarma_sunulacak = false;
+        }
 
         self.egui_state
             .handle_platform_output(self.pencere.as_ref(), full.platform_output);
@@ -631,6 +766,9 @@ fn sicaklik_ozeti(donanim: &KoruyucuDurum) -> String {
 }
 
 /// Sağ panel: 3B off-screen sahnenin (top-çubuk) canlı dokusunu gösterir + kısa açıklama.
+///
+/// İP-11: `varsayilan_genislik` geri yüklenen panel genişliğidir (ilk karede uygulanır); panelin
+/// ölçülen güncel genişliği döndürülür ve kalıcı duruma yazılır (oturumlar arası korunur).
 fn sahne3b_paneli(
     ctx: &egui::Context,
     tex_id: egui::TextureId,
@@ -638,7 +776,8 @@ fn sahne3b_paneli(
     boy: u32,
     dil: Dil,
     tok: &Tokenlar,
-) {
+    varsayilan_genislik: f32,
+) -> f32 {
     let (baslik, aciklama) = match dil {
         Dil::Tr => (
             "3B Sahne (wgpu)",
@@ -651,9 +790,9 @@ fn sahne3b_paneli(
              Base for ribbon/surface (later ÇE-07).",
         ),
     };
-    egui::SidePanel::right("biocraft_3b")
+    let yanit = egui::SidePanel::right("biocraft_3b")
         .resizable(true)
-        .default_width(320.0)
+        .default_width(varsayilan_genislik)
         .show(ctx, |ui| {
             ui.add_space(tok.bosluk.s);
             ui.heading(baslik);
@@ -670,6 +809,91 @@ fn sahne3b_paneli(
                     .small(),
             );
         });
+    // Panelin güncel genişliği (kullanıcı sürükleyip değiştirmiş olabilir) → kalıcı duruma yazılır.
+    yanit.response.rect.width()
+}
+
+/// İP-11/MK-28: çökme sonrası açılışta gösterilen "kurtarılan oturum" bandı.
+///
+/// Üst tarafta belirgin bir şeritle kullanıcıyı bilgilendirir (sessiz başarısızlık YOK — kural 3):
+/// önceki oturum düzgün kapanmamış, ama açık düzen/sekmeler geri yüklenmiştir.  "Tamam"a basınca
+/// `true` döner (band kapanır).
+fn kurtarma_banneri(ctx: &egui::Context, dil: Dil, tok: &Tokenlar) -> bool {
+    let (mesaj, dugme) = match dil {
+        Dil::Tr => (
+            "ⓘ Kurtarılan oturum: önceki oturum düzgün kapanmamıştı; açık düzeniniz \
+             (tema, panel boyutu, sekmeler) geri yüklendi.",
+            "Tamam",
+        ),
+        Dil::En => (
+            "ⓘ Recovered session: the previous session did not close cleanly; your layout \
+             (theme, panel size, tabs) was restored.",
+            "OK",
+        ),
+    };
+    let mut kapat = false;
+    egui::TopBottomPanel::top("biocraft_kurtarma").show(ctx, |ui| {
+        ui.add_space(tok.bosluk.xs);
+        ui.horizontal(|ui| {
+            ui.colored_label(tok.renk.basari, mesaj);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(dugme).clicked() {
+                    kapat = true;
+                }
+            });
+        });
+        ui.add_space(tok.bosluk.xs);
+    });
+    kapat
+}
+
+// ─── İP-11: durum eşleme + konum yardımcıları ────────────────────────────────
+
+/// Kalıcı durumun saklanacağı kullanıcı veri klasörü (platforma göre).
+///
+/// Windows: `%APPDATA%\BioCraftEngine\state`; Linux/diğer: `$XDG_DATA_HOME` veya
+/// `~/.local/share/BioCraftEngine/state`; hiçbiri yoksa geçici klasör (son çare).
+fn durum_dizini() -> PathBuf {
+    let taban = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_DATA_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+        .unwrap_or_else(std::env::temp_dir);
+    taban.join("BioCraftEngine").join("state")
+}
+
+/// Kalıcı tema seçimini UI temasına eşler (L2 nötr enum → L4 `Tema`).
+fn tema_ui(t: TemaSecimi) -> Tema {
+    match t {
+        TemaSecimi::Koyu => Tema::Koyu,
+        TemaSecimi::Acik => Tema::Acik,
+        TemaSecimi::YuksekKontrast => Tema::YuksekKontrast,
+    }
+}
+
+/// UI temasını kalıcı tema seçimine eşler (L4 `Tema` → L2 nötr enum).
+fn tema_durum(t: Tema) -> TemaSecimi {
+    match t {
+        Tema::Koyu => TemaSecimi::Koyu,
+        Tema::Acik => TemaSecimi::Acik,
+        Tema::YuksekKontrast => TemaSecimi::YuksekKontrast,
+    }
+}
+
+/// Kalıcı dil seçimini UI diline eşler.
+fn dil_ui(d: DilSecimi) -> Dil {
+    match d {
+        DilSecimi::Tr => Dil::Tr,
+        DilSecimi::En => Dil::En,
+    }
+}
+
+/// UI dilini kalıcı dil seçimine eşler.
+fn dil_durum(d: Dil) -> DilSecimi {
+    match d {
+        Dil::Tr => DilSecimi::Tr,
+        Dil::En => DilSecimi::En,
+    }
 }
 
 /// `assets/fonts` altından bir font dosyasını okur (yoksa None → egui gömülü fontuna düşülür).
