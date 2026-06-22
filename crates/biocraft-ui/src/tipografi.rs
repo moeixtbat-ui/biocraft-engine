@@ -5,11 +5,24 @@
 //! JetBrains Mono / Space Grotesk) kurar.  `.ttf` yoksa egui'nin gömülü açık fontlarına düşülür
 //! ama bu **sessizce değil** [`FontDurumu`] ile bildirilir (TDA madde 1).
 
-use biocraft_render::tipografi::{FontRol, Tipografi};
+use biocraft_render::tipografi::{MetinRol, Tipografi};
 use egui::{FontFamily, FontId, TextStyle};
 
 /// Başlık (Space Grotesk) için kullanılan özel egui font ailesi adı.
 const BASLIK_AILE: &str = "biocraft-baslik";
+
+/// Gün 31.2 / A.3 tip skala rollerinin egui [`TextStyle::Name`] kimliği (h1/h2/h3/etiket/
+/// gövde-kalın).  Standart roller (gövde/küçük/kod/display) yerleşik egui stillerine eşlenir;
+/// bu adlandırılmış stiller ek seviyelerdir → bileşenler `TextStyle::Name("h1".into())` ile kullanır.
+pub const STIL_H1: &str = "h1";
+/// H2 (ikinci seviye başlık) adlandırılmış stili.
+pub const STIL_H2: &str = "h2";
+/// H3 (panel başlık) adlandırılmış stili.
+pub const STIL_H3: &str = "h3";
+/// Etiket / BÜYÜK-harf rozet adlandırılmış stili.
+pub const STIL_ETIKET: &str = "etiket";
+/// Vurgulu gövde adlandırılmış stili.
+pub const STIL_GOVDE_KALIN: &str = "govde_kalin";
 
 /// Hangi rollerin gerçek gömülü fontu yüklendiği (eksikse egui varsayılanına düşülür).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -95,26 +108,52 @@ pub fn fontlari_yukle(
 pub fn metin_stilleri(ctx: &egui::Context, t: &Tipografi) {
     let mut style = (*ctx.style()).clone();
     let baslik_aile = FontFamily::Name(BASLIK_AILE.into());
+    // Boyutlar Gün 31.2 / A.3 tip skalasından (rol_efektif = DPI ölçekli); aile rolden türer.
     style.text_styles = [
+        // ── Yerleşik egui stilleri ─────────────────────────────────────────────────────
         (
             TextStyle::Heading,
-            FontId::new(t.display_efektif(), baslik_aile),
+            FontId::new(t.rol_efektif(MetinRol::Display), baslik_aile.clone()),
         ),
         (
             TextStyle::Body,
-            FontId::new(t.efektif(FontRol::Govde), FontFamily::Proportional),
+            FontId::new(t.rol_efektif(MetinRol::Govde), FontFamily::Proportional),
         ),
         (
             TextStyle::Button,
-            FontId::new(t.efektif(FontRol::Govde), FontFamily::Proportional),
+            FontId::new(t.rol_efektif(MetinRol::Govde), FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,
-            FontId::new(t.efektif(FontRol::Kod), FontFamily::Monospace),
+            FontId::new(t.rol_efektif(MetinRol::Kod), FontFamily::Monospace),
         ),
         (
             TextStyle::Small,
-            FontId::new(t.kucuk_efektif(), FontFamily::Proportional),
+            FontId::new(t.rol_efektif(MetinRol::Kucuk), FontFamily::Proportional),
+        ),
+        // ── Gün 31.2 ek tip skala seviyeleri (adlandırılmış stiller) ───────────────────
+        (
+            TextStyle::Name(STIL_H1.into()),
+            FontId::new(t.rol_efektif(MetinRol::H1), baslik_aile.clone()),
+        ),
+        (
+            TextStyle::Name(STIL_H2.into()),
+            FontId::new(t.rol_efektif(MetinRol::H2), baslik_aile.clone()),
+        ),
+        (
+            TextStyle::Name(STIL_H3.into()),
+            FontId::new(t.rol_efektif(MetinRol::H3), baslik_aile),
+        ),
+        (
+            TextStyle::Name(STIL_ETIKET.into()),
+            FontId::new(t.rol_efektif(MetinRol::Etiket), FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Name(STIL_GOVDE_KALIN.into()),
+            FontId::new(
+                t.rol_efektif(MetinRol::GovdeKalin),
+                FontFamily::Proportional,
+            ),
         ),
     ]
     .into();
@@ -163,6 +202,12 @@ mod tests {
         metin_stilleri(&ctx, &t);
         let stil = ctx.style();
         let govde = &stil.text_styles[&TextStyle::Body];
-        assert_eq!(govde.size, 28.0); // 14 × 2.0
+        assert_eq!(govde.size, 26.0); // gövde 13 × 2.0 (Gün 31.2 / A.3, VS Code 13px tabanı)
+                                      // Ek tip skala seviyeleri de kayıtlı (h1/h2/h3/etiket/gövde-kalın).
+        let h1 = &stil.text_styles[&TextStyle::Name(STIL_H1.into())];
+        assert_eq!(h1.size, 44.0); // h1 22 × 2.0
+        assert!(stil
+            .text_styles
+            .contains_key(&TextStyle::Name(STIL_ETIKET.into())));
     }
 }

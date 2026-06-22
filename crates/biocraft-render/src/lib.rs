@@ -23,6 +23,7 @@ pub mod backend;
 pub mod frame_budget;
 pub mod gpu;
 pub mod lod;
+pub mod olcu;
 pub mod plot;
 pub mod scene3d;
 pub mod tdr;
@@ -35,10 +36,13 @@ pub use backend::{
 pub use frame_budget::{gpu_parca_boyutu, FrameBudget};
 pub use gpu::{GpuContext, GpuHata};
 pub use lod::{seyrelt, Dortgen, LodKademe, LodSecici};
+pub use olcu::{
+    Bosluk, Golge, Hareket, KenarKalinlik, Olcu, Yaricap, Yerlesim, Yogunluk, Yukselti,
+};
 pub use plot::{Aralik, CizimKomut, Nokta, Plot2B, Sekil, Seri, SeriTur};
 pub use scene3d::{kure, ornek_top_cubuk, silindir, Kamera3B, Mesh, Sahne3B, Vertex};
 pub use tdr::{KurtarmaPlani, TdrDurum, TdrKurtarma};
-pub use tipografi::{FontRol, Tipografi};
+pub use tipografi::{FontAgirlik, FontRol, MetinRol, Tipografi};
 pub use tokens::{Palet, Renk, Tema, TokenDeposu, TokenHata, TokenSeti, ANAHTARLAR};
 
 // Alt katmanları üst katmanlar için yeniden dışa aktar (sürüm uyumu).

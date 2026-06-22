@@ -24,6 +24,7 @@ const GOMULU_TOKENLAR: &str = include_str!("../../../assets/tokens.json");
 /// Her temanın doldurması **zorunlu** anlamsal renk anahtarları.  Bir tema bunlardan birini
 /// eksik bırakırsa yükleme [`TokenHata::EksikAnahtar`] ile reddedilir (sessiz eksik renk yok).
 pub const ANAHTARLAR: &[&str] = &[
+    // ── Geriye-uyumlu anlamsal anahtarlar (İP-04 / Spec 0.8) ───────────────────────────
     "bg.primary",
     "bg.secondary",
     "surface",
@@ -43,6 +44,53 @@ pub const ANAHTARLAR: &[&str] = &[
     "info",
     "info.bg",
     "skeleton",
+    // ── Gün 31.2 Bölüm A — katmanlı (elevation) yüzeyler + zemin ───────────────────────
+    "zemin.cukur",
+    "zemin.taban",
+    "yuzey.1",
+    "yuzey.2",
+    "yuzey.3",
+    "yuzey.4",
+    "yuzey.secili",
+    // Kenarlık / ayraç katmanları.
+    "kenar.ince",
+    "kenar.varsayilan",
+    "kenar.belirgin",
+    // Metin önem katmanları.
+    "metin.birincil",
+    "metin.ikincil",
+    "metin.sonuk",
+    "metin.devredisi",
+    // Vurgu (teal/cyan marka) + odak.
+    "vurgu.taban",
+    "vurgu.hover",
+    "vurgu.aktif",
+    "vurgu.zemin",
+    "vurgu.uzeri_metin",
+    "odak.halka",
+    // Durum renkleri (yalnız renge bağlı kalma → ikon/etiketle de ayırt edilir).
+    "durum.basari",
+    "durum.uyari",
+    "durum.hata",
+    "durum.bilgi",
+    // Seçim / örtü / gölge.
+    "secim.zemin",
+    "ortu.scrim",
+    "golge.renk",
+    // Node port tipi renkleri (İP-05).
+    "port.sayi",
+    "port.metin",
+    "port.mantik",
+    "port.dizi",
+    "port.veri",
+    // Kod söz dizimi renkleri (İP-06; VS Code Dark+ uyumlu).
+    "kod.anahtar",
+    "kod.dize",
+    "kod.yorum",
+    "kod.sayi",
+    "kod.fonksiyon",
+    "kod.tip",
+    "kod.degisken",
 ];
 
 /// Token sistemiyle ilgili hatalar (kütüphane hatası → `thiserror`, CLAUDE.md §3).
@@ -212,6 +260,67 @@ impl Palet {
     /// Marka/vurgu rengi.
     pub fn vurgu(&self) -> Renk {
         self.renk("accent.primary")
+    }
+
+    // ── Gün 31.2 Bölüm A — katmanlı (elevation) erişimciler ────────────────────────────
+    // Eski çapa anahtarlar (bg.primary/surface…) reform değerlerine yeniden yönlendirildi;
+    // aşağıdaki erişimciler reformun **kalıcı** anlamsal isimlerini açar (UE5 yoğun katmanlar).
+
+    /// Viewport/tuval arka — en koyu zemin (`zemin.cukur`).
+    pub fn zemin_cukur(&self) -> Renk {
+        self.renk("zemin.cukur")
+    }
+    /// Panel yüzeyi (1. katman, `yuzey.1`).
+    pub fn yuzey1(&self) -> Renk {
+        self.renk("yuzey.1")
+    }
+    /// Yan panel / activity bar yüzeyi (2. katman, `yuzey.2`).
+    pub fn yuzey2(&self) -> Renk {
+        self.renk("yuzey.2")
+    }
+    /// Kart / girdi alanı yüzeyi (3. katman, `yuzey.3`).
+    pub fn yuzey3(&self) -> Renk {
+        self.renk("yuzey.3")
+    }
+    /// Hover yüzeyi (4. katman, `yuzey.4`).
+    pub fn yuzey4(&self) -> Renk {
+        self.renk("yuzey.4")
+    }
+    /// Seçili satır dolgusu (`yuzey.secili`, yarı saydam vurgu).
+    pub fn yuzey_secili(&self) -> Renk {
+        self.renk("yuzey.secili")
+    }
+    /// İnce ayraç kenarlığı (`kenar.ince`).
+    pub fn kenar_ince(&self) -> Renk {
+        self.renk("kenar.ince")
+    }
+    /// Odaklı girdinin belirgin kenarlığı (`kenar.belirgin`).
+    pub fn kenar_belirgin(&self) -> Renk {
+        self.renk("kenar.belirgin")
+    }
+    /// Vurgu hover varyantı (`vurgu.hover`).
+    pub fn vurgu_hover(&self) -> Renk {
+        self.renk("vurgu.hover")
+    }
+    /// Vurgu aktif (basılı) varyantı (`vurgu.aktif`).
+    pub fn vurgu_aktif(&self) -> Renk {
+        self.renk("vurgu.aktif")
+    }
+    /// Vurgu sönük dolgu (`vurgu.zemin`).
+    pub fn vurgu_zemin(&self) -> Renk {
+        self.renk("vurgu.zemin")
+    }
+    /// Odak halkası rengi (`odak.halka`, erişilebilirlik).
+    pub fn odak_halka(&self) -> Renk {
+        self.renk("odak.halka")
+    }
+    /// Modal arka karartma (`ortu.scrim`).
+    pub fn scrim(&self) -> Renk {
+        self.renk("ortu.scrim")
+    }
+    /// Gölge (elevation) rengi (`golge.renk`).
+    pub fn golge(&self) -> Renk {
+        self.renk("golge.renk")
     }
 }
 
@@ -469,17 +578,51 @@ mod tests {
     }
 
     #[test]
-    fn capa_degerleri_spec_0_8_tablosuyla_birebir() {
+    fn capa_degerleri_reform_tablosuyla_birebir() {
+        // Gün 31.2 Bölüm A: çapa değerler UE5+VS Code estetiğine (teal vurgu) **bilinçli**
+        // güncellendi (MK-58 golden tazeleme; davranış değişmez, yalnız token değeri).
         let d = TokenDeposu::gomulu();
         let koyu = d.set(&Tema::Koyu).unwrap();
-        assert_eq!(koyu.palet.zemin(), Renk::hexten("#0A1628").unwrap());
-        assert_eq!(koyu.palet.zemin_alt(), Renk::hexten("#0F1E33").unwrap());
-        assert_eq!(koyu.palet.vurgu(), Renk::hexten("#00E5FF").unwrap());
-        assert_eq!(koyu.palet.metin(), Renk::hexten("#E6EDF3").unwrap());
+        assert_eq!(koyu.palet.zemin(), Renk::hexten("#0E0F11").unwrap());
+        assert_eq!(koyu.palet.zemin_alt(), Renk::hexten("#15171A").unwrap());
+        assert_eq!(koyu.palet.vurgu(), Renk::hexten("#1FB8C9").unwrap());
+        assert_eq!(koyu.palet.metin(), Renk::hexten("#E6E9ED").unwrap());
         let acik = d.set(&Tema::Acik).unwrap();
-        assert_eq!(acik.palet.zemin(), Renk::hexten("#FAFAFA").unwrap());
-        assert_eq!(acik.palet.vurgu(), Renk::hexten("#0288D1").unwrap());
-        assert_eq!(acik.palet.metin(), Renk::hexten("#1A1A1A").unwrap());
+        assert_eq!(acik.palet.zemin(), Renk::hexten("#F4F5F7").unwrap());
+        assert_eq!(acik.palet.vurgu(), Renk::hexten("#0E8E9E").unwrap());
+        assert_eq!(acik.palet.metin(), Renk::hexten("#1B1E22").unwrap());
+    }
+
+    #[test]
+    fn reform_katmanli_anahtarlar_tum_temalarda_tanimli_ve_farkli() {
+        // Bölüm A: zemin → yuzey.1..4 katmanlı (elevation) merdiveni + teal vurgu varyantları
+        // her temada token'dan gelir (sabit renk yok); koyu temada katmanlar giderek açılır.
+        let d = TokenDeposu::gomulu();
+        let koyu = d.set(&Tema::Koyu).unwrap();
+        assert_eq!(koyu.palet.zemin_cukur(), Renk::hexten("#0A0B0C").unwrap());
+        assert_eq!(koyu.palet.yuzey1(), Renk::hexten("#15171A").unwrap());
+        assert_eq!(koyu.palet.yuzey4(), Renk::hexten("#2A2F35").unwrap());
+        assert_eq!(koyu.palet.vurgu_hover(), Renk::hexten("#35CEDE").unwrap());
+        assert_eq!(koyu.palet.odak_halka(), Renk::hexten("#2FD2E3").unwrap());
+        // Yarı saydam örtü/seçim/gölge token'ları alfa taşır (8 haneli hex çözülür).
+        assert!(koyu.palet.scrim().a < 255);
+        assert!(koyu.palet.yuzey_secili().a < 255);
+        // Katman merdiveni gerçekten artan açıklıkta (cukur < taban < y1 < y2 < y3 < y4).
+        let parlaklik = |r: Renk| r.r as u16 + r.g as u16 + r.b as u16;
+        assert!(parlaklik(koyu.palet.zemin_cukur()) <= parlaklik(koyu.palet.yuzey1()));
+        assert!(parlaklik(koyu.palet.yuzey1()) < parlaklik(koyu.palet.yuzey4()));
+        // Her tema yeni anahtarların hepsini içerir (yükleme zaten zorunlu kılar; çift güvence).
+        for (kimlik, _) in d.temalar().collect::<Vec<_>>() {
+            let set = d.set(&Tema::kimlikten(kimlik)).unwrap();
+            for a in [
+                "port.veri",
+                "kod.anahtar",
+                "durum.basari",
+                "vurgu.uzeri_metin",
+            ] {
+                assert!(set.palet.icerir(a), "{kimlik} teması {a} içermeli");
+            }
+        }
     }
 
     #[test]

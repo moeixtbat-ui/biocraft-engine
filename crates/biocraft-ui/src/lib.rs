@@ -101,7 +101,10 @@ pub use shell::{
     BirakmaOnizleme, BolmeYonu, DurumBilgisi, EditorAlani, KabukAksiyon, KapatmaIstegi, Sekme,
     SekmeGrubu, SekmeTuru,
 };
-pub use tipografi::{fontlari_yukle, metin_stilleri, FontDurumu};
+pub use tipografi::{
+    fontlari_yukle, metin_stilleri, FontDurumu, STIL_ETIKET, STIL_GOVDE_KALIN, STIL_H1, STIL_H2,
+    STIL_H3,
+};
 pub use tokens::{Onem, Tema, Tokenlar};
 // İP-02: Proje Sihirbazı (çok adımlı yeni-proje akışı + veri sınıflandırma zorunlu).
 pub use wizard::{
