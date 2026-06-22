@@ -20,6 +20,7 @@ pub mod components;
 pub mod editor;
 pub mod i18n;
 pub mod node;
+pub mod onboarding;
 pub mod plot;
 pub mod settings;
 pub mod shell;
@@ -56,6 +57,12 @@ pub use components::{
     Skeleton, StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
+// İP-17: Onboarding (ilk kullanıcı deneyimi) — "Rolün?" (K1) + atlanabilir tur + zengin şablonlar +
+// gömülü demo veri + bağlamsal ipuçları + entegre yardım.  Saf model + egui örtüleri (MK-53/MK-52).
+pub use onboarding::{
+    bos_durum_rehberi, OnboardingDurumu, OnboardingEylem, OnboardingSablon, PanelPlani, Rol,
+    TurAdim, TurDurumu,
+};
 // İP-06: Native kod editörü — sekme/ağaç + saf-Rust artımlı vurgulama + kodu ayrı süreçte
 // çalıştırma (MK-02) + büyük dosya akışı (MK-09) + **node↔kod köprüsü (ortak workspace)** +
 // **temel LSP** + **izole ortam** + **yerel geçmiş** (2. kısım, Gün 23).

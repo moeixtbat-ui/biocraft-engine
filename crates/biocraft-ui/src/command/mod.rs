@@ -105,7 +105,9 @@ fn kabuk_kategori(a: KabukAksiyon) -> KomutKategori {
         }
         NodeEditoru | KodEditoru | AkisiKodAc => KomutKategori::Calistir,
         EklentileriYonet => KomutKategori::Eklenti,
-        DemoGalerisi | Belgeler | Hakkinda => KomutKategori::Yardim,
+        DemoGalerisi | TuruBaslat | SablonGalerisi | DemoProjeAc | Belgeler | Hakkinda => {
+            KomutKategori::Yardim
+        }
     }
 }
 

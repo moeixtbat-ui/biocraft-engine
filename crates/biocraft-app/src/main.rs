@@ -45,8 +45,9 @@ use biocraft_ui::{
     kisayol_penceresi, yan_panel, ActivityMod, AiPanelEylem, AiYuzey, AltPanel, AltSekme,
     AyarDeger, AyarEylem, Ayarlar, BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery,
     KabukAksiyon, KapatmaIstegi, Kisayol, KisayolDuzenleyici, KisayolHaritasi, KodEditoru,
-    Komut as PaletKomut, KomutKaynak, KomutPaleti, NodeTuvali, PaletEylem, ProjeSihirbazi,
-    SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema, Tokenlar, TusSetiProfili,
+    Komut as PaletKomut, KomutKaynak, KomutPaleti, NodeTuvali, OnboardingDurumu, OnboardingEylem,
+    OnboardingSablon, PaletEylem, ProjeSihirbazi, SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema,
+    Tokenlar, TusSetiProfili,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -204,10 +205,22 @@ impl Uygulama {
                     .kisayollar
                     .kirli_mi()
                     .then(|| sahne.kisayollar.override_json()),
+                // İP-17: onboarding kirliyse kayıt JSON'unu al (yoksa None).
+                sahne.onboarding.kirli_mi().then(|| sahne.onboarding.json()),
             )
         };
-        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w, kabuk, ayar_json, kisayol_json) =
-            okunan;
+        let (
+            genislik,
+            yukseklik,
+            buyutulmus,
+            tema,
+            dil,
+            panel_w,
+            kabuk,
+            ayar_json,
+            kisayol_json,
+            onboarding_json,
+        ) = okunan;
 
         // 2) Değişen bir şey varsa durumu güncelle (kirli işaretle → otomatik kayıt tetiklenir).
         let d = self.yonetici.durum();
@@ -219,7 +232,8 @@ impl Uygulama {
             || (d.panel.sag_panel_genislik - panel_w).abs() > 0.5
             || kabuk_farkli(&d.kabuk, &kabuk)
             || ayar_json.is_some()
-            || kisayol_json.is_some();
+            || kisayol_json.is_some()
+            || onboarding_json.is_some();
         let simdi = Instant::now();
         if degisti {
             self.yonetici.durum_guncelle(
@@ -241,17 +255,25 @@ impl Uygulama {
                         d.tercihler
                             .insert(KISAYOL_TERCIH_ANAHTARI.to_string(), j.clone());
                     }
+                    // İP-17: onboarding durumu (rol/tur/ipuçları) tercihler'e yazılır.
+                    if let Some(j) = &onboarding_json {
+                        d.tercihler
+                            .insert(ONBOARDING_TERCIH_ANAHTARI.to_string(), j.clone());
+                    }
                 },
                 simdi,
             );
             // Diske alındı → kirliliği temizle (tekrar tekrar yazma).
-            if ayar_json.is_some() || kisayol_json.is_some() {
+            if ayar_json.is_some() || kisayol_json.is_some() || onboarding_json.is_some() {
                 if let Some(sahne) = self.durum.as_mut() {
                     if ayar_json.is_some() {
                         sahne.ayarlar.kirli_temizle();
                     }
                     if kisayol_json.is_some() {
                         sahne.kisayollar.kirli_temizle();
+                    }
+                    if onboarding_json.is_some() {
+                        sahne.onboarding.kirli_temizle();
                     }
                 }
             }
@@ -401,6 +423,9 @@ struct Sahne {
     ai: AiYuzey,
     /// `--ai-demo` ile başlatıldı mı? (Her kare ayar senkronu AI'ı kapatmasın diye etkin tutulur.)
     ai_demo: bool,
+    // ── İP-17: Onboarding (ilk kullanıcı deneyimi) ──
+    /// "Rolün?" (K1) + atlanabilir tur + şablon galerisi + yardım durumu (kalıcı `tercihler`'e yazılır).
+    onboarding: OnboardingDurumu,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -714,6 +739,19 @@ impl ApplicationHandler for Uygulama {
             log::info!("--ai-demo: echo (demo) sağlayıcı kaydedildi; AI yüzeyi uçtan uca etkin.");
         }
 
+        // İP-17: onboarding durumunu kalıcı `tercihler`'den yükle.  Kayıt yoksa **ilk açılış** →
+        // "Rolün?" diyaloğu + atlanabilir tur otomatik gösterilir; kayıt varsa hiçbir örtü açılmaz.
+        let onboarding = OnboardingDurumu::yukle_veya_ilk(
+            self.yonetici
+                .durum()
+                .tercihler
+                .get(ONBOARDING_TERCIH_ANAHTARI)
+                .map(|s| s.as_str()),
+        );
+        if onboarding.ilk_acilis {
+            log::info!("İlk açılış algılandı (İP-17): Rolün? + tanıtım turu gösterilecek.");
+        }
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
@@ -767,6 +805,7 @@ impl ApplicationHandler for Uygulama {
             kisayol_penceresi_acik: false,
             ai,
             ai_demo,
+            onboarding,
         });
     }
 
@@ -973,6 +1012,8 @@ impl Sahne {
         let mut fabrika_onay_sonuc: Option<OnayKarari> = None;
         // İP-14: AI panelinin ürettiği eylem (sağlayıcı ekle / AI'ı aç / eylem uygula) — closure sonrası işlenir.
         let mut ai_panel_eylem: Option<AiPanelEylem> = None;
+        // İP-17: onboarding örtüsünün (rol/tur/galeri/yardım) ürettiği eylem — closure sonrası işlenir.
+        let mut onboarding_eylem: Option<OnboardingEylem> = None;
         let ayarlar_acik = self.ayarlar_acik;
         // İP-12 (3. derece): durum göstergeleri ayardan açılır/kapanır.  Veriler closure öncesi
         // okunur (donanım/FPS gerçek; token AI yapılandırılmadığı için "—").
@@ -1188,6 +1229,8 @@ impl Sahne {
                     &tok,
                 );
             }
+            // İP-17: onboarding örtüsü (rol diyaloğu → tur → şablon galerisi → yardım) — en üstte.
+            onboarding_eylem = self.onboarding.overlay_ciz(c, dil, &tok);
         });
         // Ölçülen panel genişliklerini sakla (kalıcı duruma yazılır) + bandı gizle.
         self.yan_panel_genislik = olculen_yan_w;
@@ -1249,6 +1292,10 @@ impl Sahne {
                     });
                 }
             }
+        }
+        // İP-17: onboarding örtüsünün ürettiği eylemi işle (rol önerisi / şablon-demo / dış bağlantı).
+        if let Some(eylem) = onboarding_eylem {
+            self.onboarding_eylem_uygula(eylem);
         }
         // AI bir yanıt akıtıyorsa sürekli yeniden çiz (akış canlı görünsün, MK-07).
         if ai_mesgul || self.ai.mesgul() {
@@ -1445,9 +1492,12 @@ impl Sahne {
         let raw = self.egui_state.take_egui_input(self.pencere.as_ref());
         let ctx = self.egui_ctx.clone();
         let mut eylem: Option<LauncherEylem> = None;
+        // İP-17: ilk açılışta "Rolün?" + tanıtım turu launcher üstünde de çizilir (örtü).
+        let mut onb_eylem: Option<OnboardingEylem> = None;
         let full = ctx.run(raw, |c| {
             c.set_visuals(tok.egui_visuals());
             eylem = self.launcher.ciz(c, dil, &tok, simdi_inst);
+            onb_eylem = self.onboarding.overlay_ciz(c, dil, &tok);
         });
 
         // 3) Son projeler listesi değiştiyse (pin/kaldır) kalıcı depoya yaz.
@@ -1465,6 +1515,15 @@ impl Sahne {
         self.kareyi_sun(full, zemin_lin, kare_basi);
         // Haber/splash animasyonu için sürekli yeniden çiz (arayüz canlı, donmaz).
         self.pencere.request_redraw();
+
+        // 3.5) İP-17: onboarding örtüsünün eylemini işle.  "Demo Projeyi Aç" (galeri/varsayılan)
+        // motora geçer (sablon_uygula app_mod'u Motor yapar) → kullanıcı dolu ekrana iner.
+        if let Some(oe) = onb_eylem {
+            self.onboarding_eylem_uygula(oe);
+            if self.app_mod == AppMod::Motor {
+                return AcilisSonuc::MotoraGec;
+            }
+        }
 
         // 4) Kullanıcı eylemini uygula.
         self.launcher_eylem_uygula(eylem)
@@ -1606,8 +1665,16 @@ impl Sahne {
                 AcilisSonuc::Devam
             }
             LauncherEylem::EgitimiBaslat => {
-                log::info!("Eğitim/onboarding modu (İP-17) sonra gelecek.");
-                AcilisSonuc::Devam
+                // İP-17: tanıtım turunu başlat + motora geç (tur gerçek kabuğun üstünde işlenir).
+                self.onboarding.turu_baslat();
+                log::info!("İP-17: tanıtım turu başlatıldı (motor kabuğunda).");
+                AcilisSonuc::MotoraGec
+            }
+            LauncherEylem::DemoProjeAc => {
+                // İP-17: örnek veriyle dolu demo projeyi aç (sablon_uygula app_mod'u Motor yapar).
+                let s = self.onboarding.varsayilan_demo_sablonu();
+                self.sablon_uygula(s);
+                AcilisSonuc::MotoraGec
             }
             LauncherEylem::DisBaglantiAc(url) => {
                 // Kullanıcı onayladı (view onay diyaloğunu gösterdi).  Gerçek tarayıcı açma
@@ -1740,11 +1807,148 @@ impl Sahne {
                     Instant::now(),
                 ));
             }
+            // ── İP-17: Onboarding ──
+            KabukAksiyon::TuruBaslat => self.onboarding.turu_baslat(),
+            KabukAksiyon::SablonGalerisi => self.onboarding.galeriyi_ac(),
+            KabukAksiyon::DemoProjeAc => {
+                let s = self.onboarding.varsayilan_demo_sablonu();
+                self.sablon_uygula(s);
+            }
+            KabukAksiyon::Belgeler => self.onboarding.yardimi_ac(),
             KabukAksiyon::Cikis => return true,
             // Henüz ilgili paketi olmayan aksiyonlar menüde devre dışıdır; buraya düşmezler.
             _ => {}
         }
         false
+    }
+
+    // ── İP-17: Onboarding eylem uygulayıcıları ──
+
+    /// Onboarding örtüsünün ürettiği eylemi uygular (rol önerisi / şablon-demo / dış bağlantı).
+    fn onboarding_eylem_uygula(&mut self, eylem: OnboardingEylem) {
+        let tr = matches!(self.gallery.dil, Dil::Tr);
+        match eylem {
+            // K1: rol seçimi yalnızca **önerir** (dayatmaz); kullanıcıya şeffaf not düşülür.
+            OnboardingEylem::RolSecildi(rol) => {
+                let sablon = rol.onerilen_sablon();
+                log::info!(
+                    "İP-17 rol seçildi: {} → önerilen şablon: {}",
+                    rol.ad(tr),
+                    sablon.ad(tr)
+                );
+                self.alt_panel.konsol_yaz(if tr {
+                    format!(
+                        "Rol: {} — önerilen şablon: {} (dayatma yok; Yardım > Şablon Galerisi'nden değiştirebilirsiniz).",
+                        rol.ad(tr),
+                        sablon.ad(tr)
+                    )
+                } else {
+                    format!(
+                        "Role: {} — suggested template: {} (not forced; change it under Help > Template Gallery).",
+                        rol.ad(tr),
+                        sablon.ad(tr)
+                    )
+                });
+            }
+            OnboardingEylem::RolAtlandi => {
+                log::info!("İP-17 rol atlandı (dayatma yok).");
+            }
+            OnboardingEylem::SablonUygula(s) => self.sablon_uygula(s),
+            OnboardingEylem::DisBaglanti(url) => {
+                // Dış bağlantı = onay gerektirir; MVP'de URL günlüğe + konsola yazılır (İP-15/18 adaptör).
+                log::info!("İP-17 yardım: çevrimiçi belge bağlantısı istendi: {url}");
+                self.alt_panel.konsol_yaz(if tr {
+                    format!("Çevrimiçi belgeler: {url} (dış bağlantı; tarayıcıda açmak için onay gerekir).")
+                } else {
+                    format!("Online docs: {url} (external link; opening in a browser needs approval).")
+                });
+            }
+        }
+    }
+
+    /// Bir şablonu/demoyu uygular: motora geç + ilgili panelleri ön-kur + gömülü demo veriyi yükle.
+    /// Böylece kullanıcı **boş ekranla kalmaz** (kabul kriteri).
+    fn sablon_uygula(&mut self, sablon: OnboardingSablon) {
+        let tr = matches!(self.gallery.dil, Dil::Tr);
+        let plan = sablon.panel_plani();
+
+        // Motora geç + merkez bölgeyi demoya göre ayarla (ayarlar/galeri kapanır).
+        self.app_mod = AppMod::Motor;
+        self.ayarlar_acik = false;
+        self.gallery_acik = false;
+
+        // Panelleri ön-kur (yalnızca açar; kullanıcının zaten açık panellerini kapatmaz).
+        if plan.yan_panel {
+            self.yan_panel_acik = true;
+        }
+        if plan.alt_panel {
+            self.alt_panel.acik = true;
+        }
+        if plan.inspector {
+            self.inspector_acik = true;
+        }
+        // Merkez bölge node akışı VEYA kod editörü (dışlamalı); ikisi de yoksa editör kalır.
+        if plan.node_tuvali {
+            self.node_tuvali_acik = true;
+            self.kod_editoru_acik = false;
+        } else if plan.kod_editoru {
+            self.kod_editoru_acik = true;
+            self.node_tuvali_acik = false;
+        } else {
+            self.node_tuvali_acik = false;
+            self.kod_editoru_acik = false;
+        }
+
+        // Demo veriyi konsola yükle → gerçek (sentetik) örnek içerik görünür; köken/lisans şeffaf.
+        self.alt_panel.konsol_yaz(if tr {
+            format!(
+                "▶ Demo projesi açıldı: {} — örnek veriyle dolu (sentetik, açık lisans).",
+                sablon.ad(tr)
+            )
+        } else {
+            format!(
+                "▶ Demo project opened: {} — filled with sample data (synthetic, open license).",
+                sablon.ad(tr)
+            )
+        });
+        let veriler = sablon.demo_veriler();
+        for v in veriler {
+            let (kaynak, lisans) = v.koken();
+            self.alt_panel.konsol_yaz(format!(
+                "  📎 {} [{}] · {} {} · {}: {} / {}",
+                v.ad,
+                v.bicim,
+                v.satir_sayisi(),
+                if tr { "satır" } else { "lines" },
+                if tr { "köken" } else { "provenance" },
+                kaynak,
+                lisans,
+            ));
+            for satir in v.icerik.lines() {
+                self.alt_panel.konsol_yaz(format!("    {satir}"));
+            }
+        }
+        if veriler.is_empty() {
+            self.alt_panel.konsol_yaz(if tr {
+                "  (Boş şablon: panel ön-kurulmaz; kendi verinizi ekleyin.)"
+            } else {
+                "  (Empty template: no panels pre-installed; add your own data.)"
+            });
+        }
+
+        self.kabuk_bildirim = Some((
+            if tr {
+                format!("Demo açıldı: {}", sablon.ad(tr))
+            } else {
+                format!("Demo opened: {}", sablon.ad(tr))
+            },
+            Instant::now(),
+        ));
+        log::info!(
+            "İP-17: şablon/demo uygulandı: {} (paneller ön-kuruldu, {} demo dosyası yüklendi).",
+            sablon.ad(tr),
+            veriler.len()
+        );
     }
 
     // ── İP-13: Komut paleti + klavye kısayolları yardımcıları ──
@@ -3028,6 +3232,10 @@ const AYAR_TERCIH_ANAHTARI: &str = "ip12_ayarlar";
 /// İP-13: özelleştirilmiş klavye kısayolları (profil varsayılanından farklar) `tercihler` içinde bu
 /// anahtarla (JSON) saklanır → yeniden atamalar oturumlar arası korunur.
 const KISAYOL_TERCIH_ANAHTARI: &str = "ip13_kisayollar";
+
+/// İP-17: onboarding durumu (seçilen rol + tur tamamlandı + ipuçları kapalı) `tercihler` içinde bu
+/// anahtarla (JSON) saklanır → ilk açılış bir kez yaşanır, seçimler oturumlar arası korunur.
+const ONBOARDING_TERCIH_ANAHTARI: &str = "ip17_onboarding";
 
 /// Kalıcı tema seçimini ayar sistemindeki seçim anahtarına eşler ("koyu"/"acik"/"yuksek_kontrast").
 fn tema_anahtari(t: TemaSecimi) -> &'static str {

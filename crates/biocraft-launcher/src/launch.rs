@@ -93,6 +93,8 @@ pub enum LauncherEylem {
     Yardim,
     /// Eğitim/onboarding modunu yeniden başlat (İP-17).
     EgitimiBaslat,
+    /// İP-17: Demo projeyi aç (örnek veriyle dolu; motora geçer, boş ekranla kalma yok).
+    DemoProjeAc,
     /// Bir dış bağlantıyı aç — **kullanıcı zaten onayladı** (view onay diyaloğunu yönetir).
     DisBaglantiAc(String),
     /// Launcher'ı (ve uygulamayı) kapat.

@@ -68,7 +68,13 @@ pub enum KabukAksiyon {
     // ── Yardım ──
     /// Bileşen/efekt demolarını (İP-16 galerisi + bellek/2B/3B demoları) merkezde aç/kapa.
     DemoGalerisi,
-    /// Belgeler.
+    /// İP-17: Hoş geldin / tanıtım turunu yeniden başlat (atlanabilir; sıfırlanabilir).
+    TuruBaslat,
+    /// İP-17: Şablon galerisini aç (zengin şablonlar + demo veri).
+    SablonGalerisi,
+    /// İP-17: Demo projeyi aç (örnek veriyle dolu; boş ekranla kalma yok).
+    DemoProjeAc,
+    /// Belgeler / entegre yardım (İP-17: kavramlar + kısayol kartı + çevrimdışı doküman).
     Belgeler,
     /// Hakkında.
     Hakkinda,
@@ -101,6 +107,9 @@ const TUM_AKSIYONLAR: &[KabukAksiyon] = &[
     KabukAksiyon::AkisiKodAc,
     KabukAksiyon::EklentileriYonet,
     KabukAksiyon::DemoGalerisi,
+    KabukAksiyon::TuruBaslat,
+    KabukAksiyon::SablonGalerisi,
+    KabukAksiyon::DemoProjeAc,
     KabukAksiyon::Belgeler,
     KabukAksiyon::Hakkinda,
 ];
@@ -162,8 +171,14 @@ impl KabukAksiyon {
             (EklentileriYonet, En) => "Manage Plugins…",
             (DemoGalerisi, Tr) => "Bileşen Demoları",
             (DemoGalerisi, En) => "Component Demos",
-            (Belgeler, Tr) => "Belgeler",
-            (Belgeler, En) => "Documentation",
+            (TuruBaslat, Tr) => "Tanıtım Turu",
+            (TuruBaslat, En) => "Welcome Tour",
+            (SablonGalerisi, Tr) => "Şablon Galerisi…",
+            (SablonGalerisi, En) => "Template Gallery…",
+            (DemoProjeAc, Tr) => "Demo Projeyi Aç",
+            (DemoProjeAc, En) => "Open Demo Project",
+            (Belgeler, Tr) => "Belgeler / Yardım",
+            (Belgeler, En) => "Docs / Help",
             (Hakkinda, Tr) => "Hakkında",
             (Hakkinda, En) => "About",
         }
@@ -213,6 +228,11 @@ impl KabukAksiyon {
                 | Ayarlar
                 | Hakkinda
                 | Cikis
+                // İP-17: onboarding aksiyonları bu sürümde işlevsel.
+                | TuruBaslat
+                | SablonGalerisi
+                | DemoProjeAc
+                | Belgeler
         )
     }
 }
@@ -278,7 +298,16 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
             Some(KisayolAyarlari),
         ],
         Menu::Eklenti => &[Some(EklentileriYonet)],
-        Menu::Yardim => &[Some(DemoGalerisi), None, Some(Belgeler), Some(Hakkinda)],
+        Menu::Yardim => &[
+            Some(TuruBaslat),
+            Some(SablonGalerisi),
+            Some(DemoProjeAc),
+            None,
+            Some(DemoGalerisi),
+            None,
+            Some(Belgeler),
+            Some(Hakkinda),
+        ],
     }
 }
 

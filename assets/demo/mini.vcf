@@ -1,0 +1,11 @@
+##fileformat=VCFv4.2
+##source=BioCraftDemoSynthetic
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Toplam derinlik">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Alel frekansi">
+##FILTER=<ID=PASS,Description="Tum filtreleri gecti">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+demo_chr1	120	rs_demo1	A	G	60	PASS	DP=35;AF=0.48
+demo_chr1	305	rs_demo2	C	T	55	PASS	DP=28;AF=0.31
+demo_chr1	512	rs_demo3	G	A	48	PASS	DP=40;AF=0.52
+demo_chr2	88	rs_demo4	T	C	62	PASS	DP=33;AF=0.27
+demo_chr2	240	rs_demo5	GT	G	41	PASS	DP=22;AF=0.18

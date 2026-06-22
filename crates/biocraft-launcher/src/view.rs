@@ -137,6 +137,34 @@ impl LauncherDurumu {
                         if ui.button(if tr { "Ayarlar" } else { "Settings" }).clicked() {
                             eylem = Some(LauncherEylem::Ayarlar);
                         }
+                        // İP-17: tanıtım turu (atlanabilir; sonra Yardım > Tur'dan tekrar açılır).
+                        if ui
+                            .button(if tr { "🎓 Tur" } else { "🎓 Tour" })
+                            .on_hover_text(if tr {
+                                "Tanıtım turunu başlat"
+                            } else {
+                                "Start the welcome tour"
+                            })
+                            .clicked()
+                        {
+                            eylem = Some(LauncherEylem::EgitimiBaslat);
+                        }
+                        // İP-17: demo projeyi aç (örnek veriyle dolu; boş ekranla kalma yok).
+                        if ui
+                            .button(if tr {
+                                "▶ Demo Projesi"
+                            } else {
+                                "▶ Demo Project"
+                            })
+                            .on_hover_text(if tr {
+                                "Örnek veriyle dolu bir demo projeyi aç"
+                            } else {
+                                "Open a demo project filled with sample data"
+                            })
+                            .clicked()
+                        {
+                            eylem = Some(LauncherEylem::DemoProjeAc);
+                        }
                         if ui
                             .button(if tr { "Proje Aç" } else { "Open Project" })
                             .clicked()
