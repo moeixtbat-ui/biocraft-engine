@@ -19,6 +19,7 @@ pub mod command;
 pub mod components;
 pub mod editor;
 pub mod i18n;
+pub mod market;
 pub mod node;
 pub mod onboarding;
 pub mod plot;
@@ -37,6 +38,14 @@ pub use egui;
 // "yapılandırılmadı" (MK-48); demo/örnekte echo sağlayıcı uçtan uca çalışır.
 pub use ai::{ai_panel_ciz, maliyet_rozeti_ciz, AiPanelEylem, AiYuzey};
 pub use biocraft_ai_surface;
+
+// İP-18: Bilim Pazarı — VS Code standardı eklenti mağazası + doğrulanmış haber akışı + opsiyonel
+// çok-AI çapraz kontrol kancası (MK-16 imza rozeti, MK-47 "uyum garanti değil").  Salt-okur içerik
+// akışı L3 `biocraft-net`'ten gelir; gerçek kurulum İP-07 host'u (`Kurucu`) ile.
+pub use biocraft_net;
+pub use market::{
+    BioCraftPazar, CokluAiYuzey, KurulumDurum, PazarEylem, PazarSekme, PazarSuzgec, Siralama,
+};
 
 pub use biocraft_mem;
 pub use biocraft_render;

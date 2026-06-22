@@ -104,7 +104,7 @@ fn kabuk_kategori(a: KabukAksiyon) -> KomutKategori {
             KomutKategori::Gorunum
         }
         NodeEditoru | KodEditoru | AkisiKodAc => KomutKategori::Calistir,
-        EklentileriYonet => KomutKategori::Eklenti,
+        Pazar | EklentileriYonet => KomutKategori::Eklenti,
         DemoGalerisi | TuruBaslat | SablonGalerisi | DemoProjeAc | Belgeler | Hakkinda => {
             KomutKategori::Yardim
         }
@@ -129,6 +129,7 @@ fn kabuk_ikon(a: KabukAksiyon) -> Option<&'static str> {
         NodeEditoru => "🔗",
         KodEditoru => "📝",
         AkisiKodAc => "🐍",
+        Pazar => "🛒",
         EklentileriYonet => "🧩",
         DemoGalerisi => "🖼",
         Belgeler => "📖",

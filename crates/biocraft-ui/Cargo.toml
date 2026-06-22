@@ -21,6 +21,10 @@ biocraft-plugin-host = { path = "../biocraft-plugin-host" }
 # L4→L3 (render/plugin-host gibi); döngü yok (ai-surface UI'ye bağlanmaz, saf sözleşmedir).
 # AI paneli/maliyet rozeti burada (L4) çizilir — token (MK-52) + i18n (MK-53) tek kaynağı UI'de.
 biocraft-ai-surface = { path = "../biocraft-ai-surface" }
+# İP-18: Bilim Pazarı **salt-okur içerik akışı** (mağaza/haber veri modeli + asenkron yükleyici).
+# L4→L3 (ai-surface/render gibi); döngü yok (net UI'ye bağlanmaz).  Mağaza UI'si (egui) burada (L4)
+# çizilir — token (MK-52) + i18n (MK-53) tek kaynağı UI'de; gerçek kurulum plugin-host ile.
+biocraft-net = { path = "../biocraft-net" }
 
 # MK-01: UI = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
 # İP-16 bileşenleri saf egui ile yazılır; pencere/font yönetimi İP-04 (render host)
@@ -34,3 +38,10 @@ serde_json = { workspace = true }
 # İP-06: büyük dosya akışı (out-of-core, MK-09) — devasa log RAM'e alınmadan bellek-eşlenir.
 # memmap2 zaten workspace ağacında (biocraft-mem kullanıyor) → YENİ dış bağımlılık değil.
 memmap2    = { workspace = true }
+# İP-18: Bilim Pazarı asenkron yükleyici/çok-AI thread başlatma uyarısı (net feed ile aynı kalıp).
+# log zaten workspace ağacında (launcher/app/net) → YENİ dış bağımlılık değil.
+log        = { workspace = true }
+
+[dev-dependencies]
+# İP-18: market testlerinde Timestamp üretmek için (yalnızca test).  chrono zaten workspace ağacında.
+chrono     = { workspace = true }

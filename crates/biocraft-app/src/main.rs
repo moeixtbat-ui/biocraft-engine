@@ -43,11 +43,11 @@ use biocraft_ui::components::{ConfirmDialog, OnayKarari};
 use biocraft_ui::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu,
     kisayol_penceresi, yan_panel, ActivityMod, AiPanelEylem, AiYuzey, AltPanel, AltSekme,
-    AyarDeger, AyarEylem, Ayarlar, BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery,
-    KabukAksiyon, KapatmaIstegi, Kisayol, KisayolDuzenleyici, KisayolHaritasi, KodEditoru,
+    AyarDeger, AyarEylem, Ayarlar, BioCraftPazar, BolmeYonu, Dil, DurumBilgisi, EditorAlani,
+    Gallery, KabukAksiyon, KapatmaIstegi, Kisayol, KisayolDuzenleyici, KisayolHaritasi, KodEditoru,
     Komut as PaletKomut, KomutKaynak, KomutPaleti, NodeTuvali, OnboardingDurumu, OnboardingEylem,
-    OnboardingSablon, PaletEylem, ProjeSihirbazi, SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema,
-    Tokenlar, TusSetiProfili,
+    OnboardingSablon, PaletEylem, PazarEylem, ProjeSihirbazi, SekmeTuru, SihirbazBaglam,
+    SihirbazSonucu, Tema, Tokenlar, TusSetiProfili,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -426,6 +426,11 @@ struct Sahne {
     // ── İP-17: Onboarding (ilk kullanıcı deneyimi) ──
     /// "Rolün?" (K1) + atlanabilir tur + şablon galerisi + yardım durumu (kalıcı `tercihler`'e yazılır).
     onboarding: OnboardingDurumu,
+    // ── İP-18: Bilim Pazarı (eklenti mağazası + doğrulanmış haber akışı + çok-AI kancası) ──
+    /// Bilim Pazarı durumu (salt-okur içerik akışı + gerçek host kurulumu).  İlk açılışta yüklenir.
+    pazar: BioCraftPazar,
+    /// Pazar ekranı merkezde açık mı? (editör/node/galeri/ayarlar ile dışlamalı.)
+    pazar_acik: bool,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -752,6 +757,12 @@ impl ApplicationHandler for Uygulama {
             log::info!("İlk açılış algılandı (İP-17): Rolün? + tanıtım turu gösterilecek.");
         }
 
+        // İP-18: Bilim Pazarı — çevrimdışı önbellekle (küratörlü) başlat; ilk açılışta taze çekilir.
+        // Çekirdek eklenti (BioCraft Studio) varsayılan kurulu gelir → mağazada "Kurulu" görünür.
+        let mut pazar =
+            BioCraftPazar::onbellek_ile(biocraft_ui::biocraft_net::kuratorlu_veri(simdi()));
+        pazar.kurulu_tohumla("biocraft.studio.core", "0.1.0");
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
@@ -806,6 +817,8 @@ impl ApplicationHandler for Uygulama {
             ai,
             ai_demo,
             onboarding,
+            pazar,
+            pazar_acik: false,
         });
     }
 
@@ -1014,7 +1027,10 @@ impl Sahne {
         let mut ai_panel_eylem: Option<AiPanelEylem> = None;
         // İP-17: onboarding örtüsünün (rol/tur/galeri/yardım) ürettiği eylem — closure sonrası işlenir.
         let mut onboarding_eylem: Option<OnboardingEylem> = None;
+        // İP-18: Bilim Pazarı'nın (dış bağlantı/rapor/çevrimdışı kurulum/yenile) eylemi — closure sonrası.
+        let mut pazar_eylem: Option<PazarEylem> = None;
         let ayarlar_acik = self.ayarlar_acik;
+        let pazar_acik = self.pazar_acik;
         // İP-12 (3. derece): durum göstergeleri ayardan açılır/kapanır.  Veriler closure öncesi
         // okunur (donanım/FPS gerçek; token AI yapılandırılmadığı için "—").
         let g_fps = self.ayarlar.mantik("performans.fps_goster");
@@ -1111,13 +1127,21 @@ impl Sahne {
                     &mut detach_istendi,
                 );
             }
-            // 7) Merkez: Ayarlar → Kod editörü → Node editörü → galeri → editör/canvas sırasıyla.
+            // 7) Merkez: Ayarlar → Pazar → Kod editörü → Node editörü → galeri → editör/canvas sırasıyla.
             if ayarlar_acik {
                 let ayarlar = &mut self.ayarlar;
                 egui::CentralPanel::default().show(c, |ui| {
                     if let Some(ev) = ayarlar.ciz(ui, dil, &tok) {
                         ayar_eylem = Some(ev);
                     }
+                });
+            } else if pazar_acik {
+                // İP-18: Bilim Pazarı (mağaza + haber + çok-AI kancası).  AI kayıt defteri (İP-14)
+                // çok-AI çapraz kontrol için aktarılır; eylem closure sonrası işlenir.
+                let pazar = &mut self.pazar;
+                let kayit = &self.ai.kayit;
+                egui::CentralPanel::default().show(c, |ui| {
+                    pazar_eylem = pazar.ciz(ui, kayit, dil, &tok);
                 });
             } else if self.kod_editoru_acik {
                 let kod_editoru = &mut self.kod_editoru;
@@ -1296,6 +1320,14 @@ impl Sahne {
         // İP-17: onboarding örtüsünün ürettiği eylemi işle (rol önerisi / şablon-demo / dış bağlantı).
         if let Some(eylem) = onboarding_eylem {
             self.onboarding_eylem_uygula(eylem);
+        }
+        // İP-18: Bilim Pazarı'nın ürettiği eylemi işle (dış bağlantı onayı / rapor / çevrimdışı kurulum / yenile).
+        if let Some(eylem) = pazar_eylem {
+            self.pazar_eylem_uygula(eylem);
+        }
+        // Pazar içeriği yükleniyorsa (asenkron) yeniden çiz iste → iskelet→içerik geçişi görünür.
+        if self.pazar_acik && self.pazar.baslatildi() {
+            self.pencere.request_redraw();
         }
         // AI bir yanıt akıtıyorsa sürekli yeniden çiz (akış canlı görünsün, MK-07).
         if ai_mesgul || self.ai.mesgul() {
@@ -1731,11 +1763,25 @@ impl Sahne {
             KabukAksiyon::Ayarlar => {
                 self.ayarlar_acik = !self.ayarlar_acik;
                 if self.ayarlar_acik {
-                    // Ayarlar merkez bölgeyi editör/node/galeri ile paylaşır → onları kapat.
+                    // Ayarlar merkez bölgeyi editör/node/galeri/pazar ile paylaşır → onları kapat.
                     self.gallery_acik = false;
                     self.node_tuvali_acik = false;
                     self.kod_editoru_acik = false;
+                    self.pazar_acik = false;
                 }
+            }
+            // ── İP-18: Bilim Pazarı + eklenti mağazası ──
+            KabukAksiyon::Pazar => {
+                self.pazar_acik = !self.pazar_acik;
+                if self.pazar_acik {
+                    self.pazari_hazirla();
+                }
+            }
+            KabukAksiyon::EklentileriYonet => {
+                // "Eklentileri Yönet" mağazayı açar (eklenti sekmesi).
+                self.pazar.sekme = biocraft_ui::PazarSekme::Magaza;
+                self.pazar_acik = true;
+                self.pazari_hazirla();
             }
             KabukAksiyon::YanPanelAcKapa => self.yan_panel_acik = !self.yan_panel_acik,
             // ── İP-03 Gün 12 ──
@@ -1755,21 +1801,28 @@ impl Sahne {
             KabukAksiyon::EditoruBol => self.editor.bolmeyi_degistir(self.gallery.dil),
             KabukAksiyon::YogunMod => self.yogun_mod = !self.yogun_mod,
             KabukAksiyon::DuzenYonetici => self.duzen_penceresi_acik = !self.duzen_penceresi_acik,
-            KabukAksiyon::DemoGalerisi => self.gallery_acik = !self.gallery_acik,
+            KabukAksiyon::DemoGalerisi => {
+                self.gallery_acik = !self.gallery_acik;
+                if self.gallery_acik {
+                    self.pazar_acik = false;
+                }
+            }
             KabukAksiyon::NodeEditoru => {
                 self.node_tuvali_acik = !self.node_tuvali_acik;
                 if self.node_tuvali_acik {
-                    // Node editörü ile galeri/kod editörü aynı merkez bölgeyi paylaşır → kapat.
+                    // Node editörü ile galeri/kod editörü/pazar aynı merkez bölgeyi paylaşır → kapat.
                     self.gallery_acik = false;
                     self.kod_editoru_acik = false;
+                    self.pazar_acik = false;
                 }
             }
             KabukAksiyon::KodEditoru => {
                 self.kod_editoru_acik = !self.kod_editoru_acik;
                 if self.kod_editoru_acik {
-                    // Kod editörü merkez bölgeyi node editörü/galeri ile paylaşır → onları kapat.
+                    // Kod editörü merkez bölgeyi node editörü/galeri/pazar ile paylaşır → onları kapat.
                     self.node_tuvali_acik = false;
                     self.gallery_acik = false;
+                    self.pazar_acik = false;
                 }
             }
             KabukAksiyon::AkisiKodAc => {
@@ -1783,6 +1836,7 @@ impl Sahne {
                 self.kod_editoru_acik = true;
                 self.node_tuvali_acik = false;
                 self.gallery_acik = false;
+                self.pazar_acik = false;
             }
             KabukAksiyon::KomutPaleti => {
                 // İP-13: paleti aç/kapa.  Açarken taze komut kümesini (kabuk + ipuçları) yükle.
@@ -1866,16 +1920,93 @@ impl Sahne {
         }
     }
 
+    // ── İP-18: Bilim Pazarı yardımcıları ──
+
+    /// Pazarı açmaya hazırlar: diğer merkez ekranları kapatır + içerik yüklemesini (lazily) başlatır.
+    fn pazari_hazirla(&mut self) {
+        // Merkez bölgeyi paylaşan ekranları kapat (öncelik karışmasın).
+        self.ayarlar_acik = false;
+        self.gallery_acik = false;
+        self.node_tuvali_acik = false;
+        self.kod_editoru_acik = false;
+        // İlk açılışta küratörlü içeriği arka planda çek (arayüzü bloklamaz; iskelet görünür).
+        if !self.pazar.baslatildi() {
+            self.pazar
+                .baslat(biocraft_ui::biocraft_net::YerelPazarKaynagi::yeni(
+                    Duration::from_millis(700),
+                    simdi(),
+                ));
+        }
+    }
+
+    /// Pazarın ürettiği eylemi işler (dış bağlantı onayı / rapor / çevrimdışı kurulum / yenileme).
+    /// Kur/güncelle/kaldır **pazar içinde** uygulanır; buraya yalnızca dış-etki gerektirenler gelir.
+    fn pazar_eylem_uygula(&mut self, eylem: PazarEylem) {
+        let tr = matches!(self.gallery.dil, Dil::Tr);
+        match eylem {
+            // Dış bağlantı = onay gerektirir → otomatik AÇMAYIZ; URL günlüğe + konsola yazılır.
+            PazarEylem::DisBaglantiAc(url) => {
+                log::info!("İP-18 pazar: dış kaynak bağlantısı istendi: {url}");
+                self.alt_panel.konsol_yaz(if tr {
+                    format!("Kaynak: {url} (dış bağlantı; tarayıcıda açmak için onay gerekir).")
+                } else {
+                    format!("Source: {url} (external link; opening in a browser needs approval).")
+                });
+            }
+            // Raporlama temeli (moderasyon sinyali; gerçek arka uç yer tutucu).
+            PazarEylem::Raporla { kimlik, sebep } => {
+                log::info!("İP-18 pazar: içerik bildirildi: {kimlik} ({:?})", sebep);
+                self.alt_panel.konsol_yaz(if tr {
+                    format!(
+                        "İçerik bildirildi: {kimlik} — sebep: {}. Moderasyon kuyruğuna alındı (yer tutucu).",
+                        sebep.etiket(true)
+                    )
+                } else {
+                    format!(
+                        "Content reported: {kimlik} — reason: {}. Queued for moderation (placeholder).",
+                        sebep.etiket(false)
+                    )
+                });
+            }
+            // Çevrimdışı .bcext kurulum giriş noktası (gerçek kurulum İP-07 host'u ile).
+            PazarEylem::CevrimdisiBcextKur => {
+                self.alt_panel.konsol_yaz(if tr {
+                    "Çevrimdışı kurulum: bir .bcext dosyasını pencereye sürükleyin ya da Eklenti host'u \
+                     üzerinden kurun (imza/bütünlük denetimi yapılır). Dosya seçici yakında."
+                } else {
+                    "Offline install: drag a .bcext file onto the window or install via the plugin host \
+                     (signature/integrity checked). File picker coming soon."
+                });
+            }
+            // Akışı yeniden çek ("tekrar dene"/"yenile").
+            PazarEylem::Yenile => {
+                self.pazar
+                    .baslat(biocraft_ui::biocraft_net::YerelPazarKaynagi::yeni(
+                        Duration::from_millis(400),
+                        simdi(),
+                    ));
+                self.alt_panel.konsol_yaz(if tr {
+                    "Pazar içeriği yenileniyor…"
+                } else {
+                    "Refreshing market content…"
+                });
+            }
+            // Kur/güncelle/kaldır pazar içinde uygulanır → buraya düşmez.
+            PazarEylem::Kur(_) | PazarEylem::Guncelle(_) | PazarEylem::Kaldir(_) => {}
+        }
+    }
+
     /// Bir şablonu/demoyu uygular: motora geç + ilgili panelleri ön-kur + gömülü demo veriyi yükle.
     /// Böylece kullanıcı **boş ekranla kalmaz** (kabul kriteri).
     fn sablon_uygula(&mut self, sablon: OnboardingSablon) {
         let tr = matches!(self.gallery.dil, Dil::Tr);
         let plan = sablon.panel_plani();
 
-        // Motora geç + merkez bölgeyi demoya göre ayarla (ayarlar/galeri kapanır).
+        // Motora geç + merkez bölgeyi demoya göre ayarla (ayarlar/galeri/pazar kapanır).
         self.app_mod = AppMod::Motor;
         self.ayarlar_acik = false;
         self.gallery_acik = false;
+        self.pazar_acik = false;
 
         // Panelleri ön-kur (yalnızca açar; kullanıcının zaten açık panellerini kapatmaz).
         if plan.yan_panel {

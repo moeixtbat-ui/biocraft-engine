@@ -63,7 +63,9 @@ pub enum KabukAksiyon {
     /// Açık node akışını **kod olarak aç** (node ↔ kod köprüsü — İP-06).
     AkisiKodAc,
     // ── Eklenti ──
-    /// Eklentileri yönet (İP-07 host'u ile).
+    /// Bilim Pazarı'nı aç (İP-18 — eklenti mağazası + doğrulanmış haber akışı).
+    Pazar,
+    /// Eklentileri yönet (İP-07 host'u ile; mağazayı açar).
     EklentileriYonet,
     // ── Yardım ──
     /// Bileşen/efekt demolarını (İP-16 galerisi + bellek/2B/3B demoları) merkezde aç/kapa.
@@ -105,6 +107,7 @@ const TUM_AKSIYONLAR: &[KabukAksiyon] = &[
     KabukAksiyon::NodeEditoru,
     KabukAksiyon::KodEditoru,
     KabukAksiyon::AkisiKodAc,
+    KabukAksiyon::Pazar,
     KabukAksiyon::EklentileriYonet,
     KabukAksiyon::DemoGalerisi,
     KabukAksiyon::TuruBaslat,
@@ -167,6 +170,8 @@ impl KabukAksiyon {
             (KodEditoru, En) => "Code Editor",
             (AkisiKodAc, Tr) => "Akışı Kod Olarak Aç",
             (AkisiKodAc, En) => "Open Flow as Code",
+            (Pazar, Tr) => "Bilim Pazarı…",
+            (Pazar, En) => "Science Market…",
             (EklentileriYonet, Tr) => "Eklentileri Yönet…",
             (EklentileriYonet, En) => "Manage Plugins…",
             (DemoGalerisi, Tr) => "Bileşen Demoları",
@@ -233,6 +238,9 @@ impl KabukAksiyon {
                 | SablonGalerisi
                 | DemoProjeAc
                 | Belgeler
+                // İP-18: Bilim Pazarı + eklenti mağazası bu sürümde işlevsel.
+                | Pazar
+                | EklentileriYonet
         )
     }
 }
@@ -297,7 +305,7 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
             Some(KomutPaleti),
             Some(KisayolAyarlari),
         ],
-        Menu::Eklenti => &[Some(EklentileriYonet)],
+        Menu::Eklenti => &[Some(Pazar), Some(EklentileriYonet)],
         Menu::Yardim => &[
             Some(TuruBaslat),
             Some(SablonGalerisi),
@@ -394,9 +402,12 @@ mod tests {
         assert!(KabukAksiyon::DuzenYonetici.etkin_mi());
         // İP-12: Ayarlar ekranı bu sürümde işlevsel.
         assert!(KabukAksiyon::Ayarlar.etkin_mi());
+        // İP-18: Bilim Pazarı + eklenti mağazası bu sürümde işlevsel.
+        assert!(KabukAksiyon::Pazar.etkin_mi());
+        assert!(KabukAksiyon::EklentileriYonet.etkin_mi());
         // İlgili paketi henüz olmayanlar devre dışı (sahte "çalışıyor" yok).
         assert!(!KabukAksiyon::YeniProje.etkin_mi());
-        assert!(!KabukAksiyon::EklentileriYonet.etkin_mi());
+        assert!(!KabukAksiyon::ProjeAc.etkin_mi());
     }
 
     #[test]

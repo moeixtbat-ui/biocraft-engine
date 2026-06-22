@@ -22,6 +22,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod audit;
+pub mod coklu;
 pub mod context;
 pub mod contract;
 pub mod cost;
@@ -35,6 +36,8 @@ pub use biocraft_types;
 
 // Pratik kök-seviye yeniden dışa aktarımlar (yüzey/üst katmanlar için tek içe-aktarım noktası).
 pub use audit::{CagriSonucu, DenetimGirdisi, DenetimKaydi};
+// İP-18: opsiyonel çok-AI çapraz kontrol kancası — **güven sinyali, garanti değil** (MK-47).
+pub use coklu::{CokluAiKontrol, CokluAiSonuc, CokluAiYanit, UyumSeviyesi};
 pub use context::{AiBaglam, BaglamOgesi, MesajRol, SohbetMesaji};
 pub use contract::{
     AiCikti, CokluAiUyum, EylemOnerisi, EylemTuru, Guven, GuvenSeviyesi, Kaynak, Kullanim,

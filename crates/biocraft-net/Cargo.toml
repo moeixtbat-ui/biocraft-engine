@@ -24,3 +24,10 @@ biocraft-data  = { path = "../biocraft-data" }
 # tanımlanır (bkz. `iroh.rs`); gerçek iroh bağımlılığı dağıtık-ağ EKLENTİSİNDE yaşar.
 serde      = { workspace = true }
 serde_json = { workspace = true }
+# İP-18: Bilim Pazarı salt-okur akışı — asenkron yükleyici thread başlatma uyarısı (launcher
+# news.rs ile aynı kalıp).  log zaten workspace ağacında (launcher/app) → YENİ dış bağımlılık değil.
+log        = { workspace = true }
+
+[dev-dependencies]
+# İP-18: feed testlerinde Timestamp üretmek için (yalnızca test).  chrono zaten workspace ağacında.
+chrono     = { workspace = true }

@@ -17,6 +17,12 @@
 //!
 //! **Bio-kredi** ([`limits::BioKrediKanca`]) yalnızca kavramsal bir yer tutucudur (kripto DEĞİL —
 //! ARCHITECTURE §13); gerçek ekonomi eklenti + hukukçu onayından sonra gelir.
+//!
+//! **İP-18 — Bilim Pazarı salt-okur akışı ([`feed`] + [`katalog`]):** Bu crate ayrıca platform içi
+//! mağaza/haber içeriğinin **gelen (salt-okur)** akışını taşır.  P2P kancalarının aksine bu yön
+//! **dışarı veri göndermez**; küratörlü uzak bir JSON/RSS akışının (MVP'de yerel/sentetik karşılığı)
+//! asenkron + önbellekli + çevrimdışı-dayanıklı yükleyicisidir.  Doğrulama etiketleri **abartısızdır**
+//! (sahte "doğrulandı" yok — MK-47/MK-48); güvenli render + dış-bağlantı onayı üst katmanda uygulanır.
 // MK-40: L3 katmanı — yalnızca L0/L1/L2 katmanlarına bağlı; üst katman yasak.
 
 // İP-16: `ErrorReport` projenin standart, zengin (çok-alanlı) kullanıcı-görünür hata tipidir.
@@ -25,10 +31,12 @@
 #![allow(clippy::result_large_err)]
 
 pub mod contract;
+pub mod feed;
 pub mod hooks;
 pub mod identity;
 pub mod iroh;
 pub mod job;
+pub mod katalog;
 pub mod limits;
 
 pub use biocraft_ipc;
@@ -37,6 +45,8 @@ pub use biocraft_types;
 
 // Pratik kök-seviye yeniden dışa aktarımlar (üst katmanlar için tek içe-aktarım noktası).
 pub use contract::{P2pIcerikTuru, P2pYuku};
+// İP-18: Bilim Pazarı salt-okur içerik akışı (mağaza + haber) — veri modeli + asenkron yükleyici.
+pub use feed::{kuratorlu_veri, PazarDurumu, PazarKaynagi, PazarYukleyici, YerelPazarKaynagi};
 pub use hooks::{
     ag_kapali_hatasi, eklenti_yok_hatasi, sinir_ihlali_hatasi, AgDurumu, DagitikAg,
     DagitikAgSaglayici, SaglayiciKimlik, DAGITIK_AG_EKLENTI_URL,
@@ -44,4 +54,8 @@ pub use hooks::{
 pub use identity::{DugumKimlik, GuvenSeviyesi, ItibarKaydi, KimlikSaglayici};
 pub use iroh::{BaglantiTutamac, DugumAdresi, IrohUcKancasi};
 pub use job::{DayaniklilikPolitikasi, Is, IsDagitici, IsDurumu, IsKimlik, IsSonucu};
+pub use katalog::{
+    DogrulamaDurumu, Fiyat, HaberKarti, HaberTuru, Kategori, OgeTuru, PazarOgesi, PazarVerisi,
+    RaporSebebi, Yorum,
+};
 pub use limits::{BioKrediKanca, KaynakSiniri};
