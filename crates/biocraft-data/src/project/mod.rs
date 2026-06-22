@@ -190,17 +190,9 @@ fn olustur_ic(girdi: &ProjeKurulumGirdisi, kok: &Path) -> Result<KurulanProje, E
     let simdi = Utc::now();
     let manifest = girdi_manifest(girdi, simdi);
 
-    // 1) Manifest.
-    let manifest_metin = manifest.toml_metni()?;
-    integrity::atomik_yaz(&format::manifest_yolu(kok), manifest_metin.as_bytes())?;
-
-    // 2) Meta.
+    // 1-3) Çekirdek format dosyaları (manifest + meta + bütünlük mührü) atomik yazılır.
     let meta = Meta::yeni(simdi, manifest.goc.len());
-    let meta_metin = meta.toml_metni()?;
-    integrity::atomik_yaz(&format::meta_yolu(kok), meta_metin.as_bytes())?;
-
-    // 3) Bütünlük mührü (manifest + meta özetleri, BCP1 zarflı).
-    butunluk_muhru_yaz(kok, manifest_metin.as_bytes(), meta_metin.as_bytes())?;
+    cekirdek_dosyalari_yaz(kok, &manifest, &meta)?;
 
     // 4) İlk provenance olayı.
     provenance::olay_ekle(
@@ -216,6 +208,26 @@ fn olustur_ic(girdi: &ProjeKurulumGirdisi, kok: &Path) -> Result<KurulanProje, E
         kok: kok.to_path_buf(),
         manifest,
     })
+}
+
+/// Çekirdek format dosyalarını (manifest + meta + bütünlük mührü) **atomik** yazar.
+///
+/// Hem ilk kurulum (`olustur`) hem de göç (`migrate`) bu **tek kaynağı** kullanır → mühürleme
+/// mantığı bir yerde toplanır.  Yazım sırası: önce manifest, sonra meta, **en son mühür** (mühür
+/// her ikisinin özetini taşır) → bir çökme mührü manifest/meta'dan önce yazmaz; bir sonraki açılışta
+/// tutarsızlık **sessiz değil** [`ac`] bütünlük denetiminde net hata olarak yakalanır.
+pub(crate) fn cekirdek_dosyalari_yaz(
+    kok: &Path,
+    manifest: &Manifest,
+    meta: &Meta,
+) -> Result<(), ErrorReport> {
+    let manifest_metin = manifest.toml_metni()?;
+    integrity::atomik_yaz(&format::manifest_yolu(kok), manifest_metin.as_bytes())?;
+
+    let meta_metin = meta.toml_metni()?;
+    integrity::atomik_yaz(&format::meta_yolu(kok), meta_metin.as_bytes())?;
+
+    butunluk_muhru_yaz(kok, manifest_metin.as_bytes(), meta_metin.as_bytes())
 }
 
 /// Bütünlük mührünü hesaplayıp diske (BCP1 zarflı) yazar.

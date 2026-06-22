@@ -22,6 +22,7 @@
 pub use biocraft_sdk;
 pub use biocraft_types;
 
+pub mod migrate;
 pub mod privacy;
 pub mod project;
 pub mod security;
@@ -37,4 +38,10 @@ pub use project::{
 pub use privacy::{
     cikis_denetle, gonderim_degerlendir, guvenli_sil, tam_veri_ihrac, veri_envanteri, CikisKarari,
     DisKanal, GizlilikProfili, GonderimDurumu, KokenGezgini, OnayKarari, OnayTalebi, VeriKokeni,
+};
+
+// Sık kullanılan göç API'sini kök seviyede yeniden dışa aktar (İP-19, MK-59/MK-14).
+pub use migrate::{
+    ac_ve_goc, degerlendir, eklenti_veri_uyumu, goc_plani, EklentiVeriUyumu, Goc, GocKayit,
+    GocPlani, GocSonucu, OnayPolitikasi, SaltOkunurProje, SurumDurumu,
 };
