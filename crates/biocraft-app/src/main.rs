@@ -42,9 +42,9 @@ use biocraft_state::{
 use biocraft_ui::components::{ConfirmDialog, OnayKarari};
 use biocraft_ui::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu, yan_panel,
-    ActivityMod, AltPanel, AltSekme, BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery,
-    KabukAksiyon, KapatmaIstegi, KodEditoru, NodeTuvali, ProjeSihirbazi, SekmeTuru, SihirbazBaglam,
-    SihirbazSonucu, Tema, Tokenlar,
+    ActivityMod, AltPanel, AltSekme, AyarDeger, AyarEylem, Ayarlar, BolmeYonu, Dil, DurumBilgisi,
+    EditorAlani, Gallery, KabukAksiyon, KapatmaIstegi, KodEditoru, NodeTuvali, ProjeSihirbazi,
+    SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema, Tokenlar,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -192,9 +192,14 @@ impl Uygulama {
                 dil_durum(sahne.gallery.dil),
                 sahne.son_panel_genislik,
                 sahne.kabuk_durumu_oku(),
+                // İP-12: ayarlar kirliyse kullanıcı katmanı JSON'unu al (yoksa None).
+                sahne
+                    .ayarlar
+                    .kirli_mi()
+                    .then(|| sahne.ayarlar.kullanici_json()),
             )
         };
-        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w, kabuk) = okunan;
+        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w, kabuk, ayar_json) = okunan;
 
         // 2) Değişen bir şey varsa durumu güncelle (kirli işaretle → otomatik kayıt tetiklenir).
         let d = self.yonetici.durum();
@@ -204,7 +209,8 @@ impl Uygulama {
             || d.pencere.yukseklik != yukseklik
             || d.pencere.buyutulmus != buyutulmus
             || (d.panel.sag_panel_genislik - panel_w).abs() > 0.5
-            || kabuk_farkli(&d.kabuk, &kabuk);
+            || kabuk_farkli(&d.kabuk, &kabuk)
+            || ayar_json.is_some();
         let simdi = Instant::now();
         if degisti {
             self.yonetici.durum_guncelle(
@@ -216,9 +222,20 @@ impl Uygulama {
                     d.pencere.buyutulmus = buyutulmus;
                     d.panel.sag_panel_genislik = panel_w;
                     d.kabuk = kabuk;
+                    // İP-12: tüm 3. derece ayarlar tek JSON dizgesi olarak tercihler'e yazılır.
+                    if let Some(j) = &ayar_json {
+                        d.tercihler
+                            .insert(AYAR_TERCIH_ANAHTARI.to_string(), j.clone());
+                    }
                 },
                 simdi,
             );
+            // Ayarlar diske alındı → kirliliği temizle (tekrar tekrar yazma).
+            if ayar_json.is_some() {
+                if let Some(sahne) = self.durum.as_mut() {
+                    sahne.ayarlar.kirli_temizle();
+                }
+            }
         }
 
         // 3) Otomatik kayıt zamanı geldiyse yaz (sessizce başarısız olma — MK-28 kural 3).
@@ -343,6 +360,13 @@ struct Sahne {
     launcher_depo: DosyaDepo,
     /// İP-02: açıksa proje sihirbazı (launcher üstüne tam-ekran çizilir).  `None` = kapalı.
     sihirbaz: Option<ProjeSihirbazi>,
+    // ── İP-12: Ayarlar sistemi ──
+    /// Kapsamlı, aranabilir, kategorize ayar deposu (katmanlı; kalıcı `tercihler`'e yazılır).
+    ayarlar: Ayarlar,
+    /// Ayarlar ekranı merkezde açık mı? (editör/node/galeri ile dışlamalı.)
+    ayarlar_acik: bool,
+    /// "Fabrika ayarlarına dön" onay diyaloğu (yıkıcı → onaylı).
+    fabrika_onay: Option<ConfirmDialog>,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -616,6 +640,22 @@ impl ApplicationHandler for Uygulama {
         alt_panel.yukseklik = kayitli_kabuk.alt_panel_yukseklik;
         alt_panel.aktif = AltSekme::secimden(kayitli_kabuk.alt_panel_sekme);
 
+        // İP-12: ayar deposunu kur → kalıcı kullanıcı katmanını (tercihler) yükle → tema/dil'i
+        // uzun süredir tutulan UygulamaDurumu ile eşle (geriye uyum; bu ikisi tema/dil'in otoritesi).
+        let mut ayarlar = Ayarlar::default();
+        if let Some(json) = self.yonetici.durum().tercihler.get(AYAR_TERCIH_ANAHTARI) {
+            ayarlar.kullanici_yukle_json(json);
+        }
+        ayarlar.ayarla(
+            "gorunum.tema",
+            AyarDeger::Secim(tema_anahtari(kayitli_tema).to_string()),
+        );
+        ayarlar.ayarla(
+            "gorunum.dil",
+            AyarDeger::Secim(dil_anahtari(kayitli_dil).to_string()),
+        );
+        ayarlar.kirli_temizle(); // açılış senkronu "değişiklik" sayılmaz.
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
@@ -660,6 +700,9 @@ impl ApplicationHandler for Uygulama {
             launcher,
             launcher_depo,
             sihirbaz: None,
+            ayarlar,
+            ayarlar_acik: false,
+            fabrika_onay: None,
         });
     }
 
@@ -769,6 +812,9 @@ impl Sahne {
     fn ciz(&mut self, yonetici: &mut DurumYoneticisi) -> bool {
         let kare_basi = Instant::now();
 
+        // İP-12: ayar sistemini görünür arayüze uygula (tema/dil tek kaynaktan — ayarlar).
+        self.ayar_gorunum_uygula();
+
         // Süresi dolan geçici bildirimleri temizle (~4 sn göster): TDR + kabuk aksiyon bildirimi.
         if let Some((_, gosterim)) = &self.tdr_bildirim {
             if gosterim.elapsed() > Duration::from_secs(4) {
@@ -849,6 +895,27 @@ impl Sahne {
         let mut duzen_kaydet: Option<String> = None;
         let mut duzen_yukle: Option<KabukDurumu> = None;
         let mut duzen_sil: Option<String> = None;
+        // İP-12: ayar ekranı eylemi + fabrika sıfırlama onayı (closure sonrası uygulanır).
+        let mut ayar_eylem: Option<AyarEylem> = None;
+        let mut fabrika_onay_sonuc: Option<OnayKarari> = None;
+        let ayarlar_acik = self.ayarlar_acik;
+        // İP-12 (3. derece): durum göstergeleri ayardan açılır/kapanır.  Veriler closure öncesi
+        // okunur (donanım/FPS gerçek; token AI yapılandırılmadığı için "—").
+        let g_fps = self.ayarlar.mantik("performans.fps_goster");
+        let g_ram = self.ayarlar.mantik("performans.bellek_goster");
+        let g_sic = self.ayarlar.mantik("performans.sicaklik_goster");
+        let g_tok = self.ayarlar.mantik("ai.token_sayaci_goster");
+        let ai_etkin = self.ayarlar.mantik("ai.etkin");
+        let gostergeli = g_fps || g_ram || g_sic || g_tok;
+        let ram_orani = donanim.son_ornek.ram_orani;
+        let sicaklik = self
+            .simule_sicaklik
+            .or(donanim.son_ornek.gpu_c)
+            .or(donanim.son_ornek.cpu_c);
+        // İP-12 (3. derece): yazı boyutu + animasyon hızı canlı uygulanır.
+        let font_faktor =
+            (self.ayarlar.tam_sayi("gorunum.font_boyutu") as f32 / 14.0).clamp(0.6, 2.0);
+        let anim_hiz = self.ayarlar.ondalik("gorunum.animasyon_hizi");
         // Context klonu (ucuz Arc) → kapanış self.gallery'yi ödünç alırken self.egui_ctx çakışmaz.
         let ctx = self.egui_ctx.clone();
         let full = ctx.run(raw, |c| {
@@ -857,6 +924,15 @@ impl Sahne {
             c.style_mut(|st| {
                 let (x, y) = if yogun { (6.0, 3.0) } else { (10.0, 8.0) };
                 st.spacing.item_spacing = egui::vec2(x, y);
+                // İP-12: yazı boyutu (hiyerarşiyi koruyarak ölçekle) + animasyon hızı (0 = kapat).
+                for (_stil, font_id) in st.text_styles.iter_mut() {
+                    font_id.size *= font_faktor;
+                }
+                st.animation_time = if anim_hiz <= 0.01 {
+                    0.0
+                } else {
+                    (0.1 / anim_hiz as f32).clamp(0.0, 1.0)
+                };
             });
 
             // 1) Title Bar (üst) + klasik menü + komut paleti + hızlı eylemler.
@@ -904,8 +980,15 @@ impl Sahne {
                     &mut detach_istendi,
                 );
             }
-            // 7) Merkez: Kod editörü → Node editörü → galeri → editör/canvas alanı sırasıyla.
-            if self.kod_editoru_acik {
+            // 7) Merkez: Ayarlar → Kod editörü → Node editörü → galeri → editör/canvas sırasıyla.
+            if ayarlar_acik {
+                let ayarlar = &mut self.ayarlar;
+                egui::CentralPanel::default().show(c, |ui| {
+                    if let Some(ev) = ayarlar.ciz(ui, dil, &tok) {
+                        ayar_eylem = Some(ev);
+                    }
+                });
+            } else if self.kod_editoru_acik {
                 let kod_editoru = &mut self.kod_editoru;
                 egui::CentralPanel::default().show(c, |ui| {
                     kod_editoru.ciz(ui, dil, &tok);
@@ -983,6 +1066,19 @@ impl Sahne {
 
             // İP-11 Gün 10: geri-al/yinele demosu — yüzen pencere (kabuk düzenini bozmaz).
             duzenleme_paneli(c, &mut self.duzenleme, dil, &tok);
+
+            // İP-12: "fabrika ayarları" onay diyaloğu (yıkıcı → onaylı).
+            if let Some(dlg) = &self.fabrika_onay {
+                if let Some(k) = dlg.show(c, dil, &tok) {
+                    fabrika_onay_sonuc = Some(k);
+                }
+            }
+            // İP-12 (3. derece): durum göstergeleri şeridi (FPS/RAM/°C/token) — ayardan açılır.
+            if gostergeli {
+                gosterge_seridi(
+                    c, dil, &tok, fps, g_fps, ram_orani, g_ram, sicaklik, g_sic, g_tok, ai_etkin,
+                );
+            }
         });
         // Ölçülen panel genişliklerini sakla (kalıcı duruma yazılır) + bandı gizle.
         self.yan_panel_genislik = olculen_yan_w;
@@ -992,6 +1088,31 @@ impl Sahne {
         }
         if detach_istendi {
             self.detach_toggle_istendi = true;
+        }
+        // İP-12: ayar ekranı eylemi — fabrika sıfırlama onay diyaloğunu kur.
+        if matches!(ayar_eylem, Some(AyarEylem::FabrikaSifirlaIstendi))
+            && self.fabrika_onay.is_none()
+        {
+            let tr = matches!(self.gallery.dil, Dil::Tr);
+            let (baslik, mesaj) = if tr {
+                (
+                    "Fabrika ayarları",
+                    "Tüm ayarlar varsayılana dönecek. Devam edilsin mi?",
+                )
+            } else {
+                (
+                    "Factory reset",
+                    "All settings will return to defaults. Continue?",
+                )
+            };
+            // Yıkıcı → otomatik "geri alınamaz" uyarısı + kırmızı onay butonu.
+            self.fabrika_onay = Some(ConfirmDialog::yeni(baslik, mesaj).yikici());
+        }
+        if let Some(k) = fabrika_onay_sonuc {
+            self.fabrika_onay = None;
+            if matches!(k, OnayKarari::Onayla) {
+                self.ayarlar.fabrika_sifirla();
+            }
         }
         // Özel düzen eylemlerini uygula (closure dışında; self + yonetici serbest).
         if let Some(ad) = duzen_kaydet {
@@ -1322,8 +1443,13 @@ impl Sahne {
                 AcilisSonuc::Devam
             }
             LauncherEylem::Ayarlar => {
-                log::info!("Ayarlar (İP-12) sonra gelecek.");
-                AcilisSonuc::Devam
+                // İP-12: motora geç ve ayar ekranını merkezde aç.
+                self.ayarlar_acik = true;
+                self.gallery_acik = false;
+                self.node_tuvali_acik = false;
+                self.kod_editoru_acik = false;
+                log::info!("Ayarlar ekranı açılıyor (İP-12).");
+                AcilisSonuc::MotoraGec
             }
             LauncherEylem::Yardim => {
                 log::info!("Yardım/Dokümanlar.");
@@ -1346,15 +1472,53 @@ impl Sahne {
     ///
     /// Tema/dil değişimi `gallery` üzerinden yapılır (kalıcı duruma `senkron_ve_kaydet` yazar);
     /// böylece hem menü hem hızlı eylem hem de ileride komut paleti aynı tek davranışa bağlanır.
+    /// İP-12: ayar sistemini görünür arayüze uygular (her karede çağrılır).
+    ///
+    /// Ayar sistemi tema/dil için **tek çalışma-zamanı kaynağıdır**; buradan galeriye (dolayısıyla
+    /// tüm kabuğa) yansıtılır.  Tema/dil hızlı eylemleri de ayar deposunu değiştirir → tek tanım.
+    fn ayar_gorunum_uygula(&mut self) {
+        self.gallery.tema = match self.ayarlar.secim("gorunum.tema").as_str() {
+            "acik" => Tema::Acik,
+            "yuksek_kontrast" => Tema::YuksekKontrast,
+            _ => Tema::Koyu,
+        };
+        self.gallery.dil = if self.ayarlar.secim("gorunum.dil") == "en" {
+            Dil::En
+        } else {
+            Dil::Tr
+        };
+    }
+
     fn kabuk_aksiyon_uygula(&mut self, aksiyon: KabukAksiyon) -> bool {
         let tr = matches!(self.gallery.dil, Dil::Tr);
         match aksiyon {
-            KabukAksiyon::TemaDegistir => self.gallery.tema = self.gallery.tema.sonraki(),
-            KabukAksiyon::DilDegistir => {
-                self.gallery.dil = match self.gallery.dil {
-                    Dil::Tr => Dil::En,
-                    Dil::En => Dil::Tr,
+            // Tema/dil hızlı eylemleri ayar deposunu değiştirir (ayar_gorunum_uygula yansıtır).
+            KabukAksiyon::TemaDegistir => {
+                let sonraki = match self.ayarlar.secim("gorunum.tema").as_str() {
+                    "koyu" => "acik",
+                    "acik" => "yuksek_kontrast",
+                    _ => "koyu",
                 };
+                self.ayarlar
+                    .ayarla("gorunum.tema", AyarDeger::Secim(sonraki.to_string()));
+            }
+            KabukAksiyon::DilDegistir => {
+                let sonraki = if self.ayarlar.secim("gorunum.dil") == "tr" {
+                    "en"
+                } else {
+                    "tr"
+                };
+                self.ayarlar
+                    .ayarla("gorunum.dil", AyarDeger::Secim(sonraki.to_string()));
+            }
+            KabukAksiyon::Ayarlar => {
+                self.ayarlar_acik = !self.ayarlar_acik;
+                if self.ayarlar_acik {
+                    // Ayarlar merkez bölgeyi editör/node/galeri ile paylaşır → onları kapat.
+                    self.gallery_acik = false;
+                    self.node_tuvali_acik = false;
+                    self.kod_editoru_acik = false;
+                }
             }
             KabukAksiyon::YanPanelAcKapa => self.yan_panel_acik = !self.yan_panel_acik,
             // ── İP-03 Gün 12 ──
@@ -2126,6 +2290,83 @@ fn kurtarma_banneri(ctx: &egui::Context, dil: Dil, tok: &Tokenlar) -> bool {
 ///
 /// İP-03'ten itibaren ana kabuğun (Activity + Side Panel) sol kenarıyla çakışmaması için **yüzen
 /// pencere** olarak çizilir; varsayılan kapalı (başlık çubuğu) — kullanıcı açıp inceleyebilir.
+/// İP-12 (3. derece): durum göstergesi şeridi — FPS/RAM/sıcaklık/token, **ayardan açılır/kapanır**.
+///
+/// Sağ-altta yüzen, etkileşimsiz küçük bir şerit.  FPS ve donanım (RAM/°C) gerçek; token AI
+/// yapılandırılmadığı için dürüstçe "—" gösterir (MK-48: sahte değer yok).
+#[allow(clippy::too_many_arguments)]
+fn gosterge_seridi(
+    ctx: &egui::Context,
+    dil: Dil,
+    tok: &Tokenlar,
+    fps: f32,
+    fps_on: bool,
+    ram_orani: Option<f32>,
+    ram_on: bool,
+    sicaklik: Option<f32>,
+    sic_on: bool,
+    tok_on: bool,
+    ai_etkin: bool,
+) {
+    let tr = matches!(dil, Dil::Tr);
+    let cip = |ui: &mut egui::Ui, ikon: &str, deger: &str| -> egui::Response {
+        ui.label(
+            egui::RichText::new(format!("{ikon} {deger}"))
+                .small()
+                .color(tok.renk.metin),
+        )
+    };
+    egui::Area::new(egui::Id::new("ip12_gosterge_seridi"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -34.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::none()
+                .fill(tok.renk.yuzey)
+                .stroke(egui::Stroke::new(1.0, tok.renk.kenarlik))
+                .rounding(egui::Rounding::same(tok.yaricap))
+                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if fps_on {
+                            cip(ui, "🎞", &format!("{:.0} FPS", fps.max(0.0)));
+                        }
+                        if ram_on {
+                            ui.separator();
+                            let v = ram_orani
+                                .map(|r| format!("%{:.0}", (r * 100.0).clamp(0.0, 100.0)))
+                                .unwrap_or_else(|| "—".to_string());
+                            cip(ui, "🧠", &v).on_hover_text(if tr {
+                                "RAM kullanımı"
+                            } else {
+                                "RAM usage"
+                            });
+                        }
+                        if sic_on {
+                            ui.separator();
+                            let v = sicaklik
+                                .map(|c| format!("{c:.0}°C"))
+                                .unwrap_or_else(|| "—".to_string());
+                            cip(ui, "🌡", &v).on_hover_text(if tr {
+                                "GPU/işlemci sıcaklığı"
+                            } else {
+                                "GPU/CPU temperature"
+                            });
+                        }
+                        if tok_on {
+                            ui.separator();
+                            // AI yapılandırılmadığında dürüst "—" (MK-48).
+                            let v = if ai_etkin { "0" } else { "—" };
+                            cip(ui, "✨", &format!("token {v}")).on_hover_text(if tr {
+                                "AI yapılandırılınca anlık token sayısı"
+                            } else {
+                                "Live token count once AI is configured"
+                            });
+                        }
+                    });
+                });
+        });
+}
+
 fn duzenleme_paneli(ctx: &egui::Context, demo: &mut DuzenlemeDemo, dil: Dil, tok: &Tokenlar) {
     let tr = matches!(dil, Dil::Tr);
     let baslik = if tr {
@@ -2507,6 +2748,28 @@ fn taslak_to_girdi(taslak: &biocraft_ui::ProjeTaslagi) -> biocraft_data::ProjeKu
     girdi.sifreleme = taslak.sifreleme;
     girdi.dagitik_ag_etkin = taslak.dagitik_ag_etkin;
     girdi
+}
+
+/// İP-12: ayar sisteminin kullanıcı katmanı `UygulamaDurumu.tercihler` içinde bu anahtarla
+/// (JSON dizgesi) saklanır.  Böylece tüm 3. derece ayarlar mevcut atomik+BLAKE3 durum deposuyla
+/// kalıcı olur; tema/dil ise geriye uyum için ayrıca `tema`/`dil` alanlarında tutulmaya devam eder.
+const AYAR_TERCIH_ANAHTARI: &str = "ip12_ayarlar";
+
+/// Kalıcı tema seçimini ayar sistemindeki seçim anahtarına eşler ("koyu"/"acik"/"yuksek_kontrast").
+fn tema_anahtari(t: TemaSecimi) -> &'static str {
+    match t {
+        TemaSecimi::Koyu => "koyu",
+        TemaSecimi::Acik => "acik",
+        TemaSecimi::YuksekKontrast => "yuksek_kontrast",
+    }
+}
+
+/// Kalıcı dil seçimini ayar sistemindeki seçim anahtarına eşler ("tr"/"en").
+fn dil_anahtari(d: DilSecimi) -> &'static str {
+    match d {
+        DilSecimi::Tr => "tr",
+        DilSecimi::En => "en",
+    }
 }
 
 /// Kalıcı tema seçimini UI temasına eşler (L2 nötr enum → L4 `Tema`).

@@ -52,6 +52,8 @@ pub enum KabukAksiyon {
     DuzenYonetici,
     /// Komut paletini aç (İP-13 — şimdilik bilgilendirici yer tutucu).
     KomutPaleti,
+    /// Ayarlar ekranını merkezde aç/kapa (İP-12).
+    Ayarlar,
     /// Node (görsel akış) editörünü merkezde aç/kapa (İP-05).
     NodeEditoru,
     /// Kod editörünü merkezde aç/kapa (İP-06).
@@ -108,6 +110,8 @@ impl KabukAksiyon {
             (DuzenYonetici, En) => "Manage Layouts…",
             (KomutPaleti, Tr) => "Komut Paleti…",
             (KomutPaleti, En) => "Command Palette…",
+            (Ayarlar, Tr) => "Ayarlar…",
+            (Ayarlar, En) => "Settings…",
             (NodeEditoru, Tr) => "Node Editörü",
             (NodeEditoru, En) => "Node Editor",
             (KodEditoru, Tr) => "Kod Editörü",
@@ -139,6 +143,7 @@ impl KabukAksiyon {
             AltPanelAcKapa => Some("Ctrl+J"),
             EditoruBol => Some("Ctrl+\\"),
             KomutPaleti => Some("Ctrl+Shift+P"),
+            Ayarlar => Some("Ctrl+,"),
             _ => None,
         }
     }
@@ -164,6 +169,7 @@ impl KabukAksiyon {
                 | NodeEditoru
                 | KodEditoru
                 | AkisiKodAc
+                | Ayarlar
                 | Hakkinda
                 | Cikis
         )
@@ -225,6 +231,8 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
             Some(NodeEditoru),
             Some(KodEditoru),
             Some(AkisiKodAc),
+            None,
+            Some(Ayarlar),
             Some(KomutPaleti),
         ],
         Menu::Eklenti => &[Some(EklentileriYonet)],
@@ -305,6 +313,7 @@ mod tests {
         KabukAksiyon::KomutPaleti,
         KabukAksiyon::NodeEditoru,
         KabukAksiyon::KodEditoru,
+        KabukAksiyon::Ayarlar,
         KabukAksiyon::EklentileriYonet,
         KabukAksiyon::Belgeler,
         KabukAksiyon::Hakkinda,
@@ -339,6 +348,8 @@ mod tests {
         assert!(KabukAksiyon::EditoruBol.etkin_mi());
         assert!(KabukAksiyon::YogunMod.etkin_mi());
         assert!(KabukAksiyon::DuzenYonetici.etkin_mi());
+        // İP-12: Ayarlar ekranı bu sürümde işlevsel.
+        assert!(KabukAksiyon::Ayarlar.etkin_mi());
         // İlgili paketi henüz olmayanlar devre dışı (sahte "çalışıyor" yok).
         assert!(!KabukAksiyon::YeniProje.etkin_mi());
         assert!(!KabukAksiyon::EklentileriYonet.etkin_mi());

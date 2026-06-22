@@ -19,6 +19,7 @@ pub mod editor;
 pub mod i18n;
 pub mod node;
 pub mod plot;
+pub mod settings;
 pub mod shell;
 pub mod tipografi;
 pub mod tokens;
@@ -56,6 +57,12 @@ pub use node::{
     Parametreler, Port, SonucOnbellek, VeriTuru, YurutucuKayit,
 };
 pub use plot::PlotWidget;
+// İP-12: Kapsamlı, aranabilir, kategorize ayar sistemi (3. derece) — katmanlı kalıcılık +
+// profil dışa/içe aktarma (hassas hariç) + eklenti ayar kaydı (SDK).
+pub use settings::{
+    AyarDeger, AyarEylem, AyarKategorisi, AyarKatmani, AyarKatmaniKaydi, AyarKayit, AyarProfili,
+    AyarTanimi, AyarTuru, Ayarlar, SecimSecenegi, KATMAN_SURUMU,
+};
 // İP-03: 6-bölge ana kabuk (Title+Menü / Activity / Side / Editor / Bottom / Status + Inspector).
 pub use shell::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, dosya_turu,

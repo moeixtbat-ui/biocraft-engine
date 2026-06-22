@@ -143,21 +143,21 @@ fn mod_icerigi(ui: &mut egui::Ui, mod_: ActivityMod, dil: Dil, tok: &Tokenlar) {
         ActivityMod::Ayar => {
             ui.label(
                 egui::RichText::new(if tr {
-                    "Ayarlar (yer tutucu — İP-12)"
+                    "Hızlı ayarlar"
                 } else {
-                    "Settings (placeholder — İP-12)"
+                    "Quick settings"
                 })
                 .color(tok.renk.metin_soluk)
                 .small(),
             );
             ui.add_space(tok.bosluk.xs);
-            // Hızlı bağlam: tema/dilin başlık çubuğundan da değiştirilebildiğini hatırlat.
+            // Tam ayar ekranına yönlendirme (İP-12) — Görünüm → Ayarlar veya Ctrl+,.
             ui.colored_label(
                 tok.onem_rengi(Onem::Bilgi),
                 if tr {
-                    "ⓘ Tema ve dil, üstteki hızlı eylemlerden veya Görünüm menüsünden değişir."
+                    "ⓘ Tüm ayarlar için: Görünüm → Ayarlar (Ctrl+,). Kategorili + aranabilir."
                 } else {
-                    "ⓘ Theme and language change from the top quick actions or the View menu."
+                    "ⓘ For all settings: View → Settings (Ctrl+,). Categorized + searchable."
                 },
             );
         }
