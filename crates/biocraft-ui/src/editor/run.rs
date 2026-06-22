@@ -9,8 +9,11 @@
 //! birim-testlenebilir tutulur (sentetik olaylarla).
 // MK-02: çalıştırma daima ayrı süreçte; bu modül yalnız tutamacı sürer + çıktıyı biriktirir.
 
+use std::path::PathBuf;
+
 use biocraft_plugin_host::exec::{
-    calistir_baslat, CalismaModu, CalismaOlay, CalismaTutamac, KodCalismaLimitleri,
+    calistir_baslat, calistir_baslat_ile, CalismaModu, CalismaOlay, CalismaTutamac,
+    KodCalismaLimitleri,
 };
 use biocraft_types::ErrorReport;
 
@@ -80,6 +83,8 @@ pub struct CalistirmaDurumu {
     pub cikti: Vec<CiktiSatiri>,
     /// Son çalıştırma kipi.
     pub modu: Option<CalismaModu>,
+    /// Çalıştırmada kullanılacak yorumlayıcı (proje izole ortamı); `None` = sistem Python'u.
+    yorumlayici: Option<PathBuf>,
     /// Çalışan sürecin tutamacı (varsa).
     tutamac: Option<CalismaTutamac>,
 }
@@ -105,18 +110,32 @@ impl CalistirmaDurumu {
         matches!(self.durum, Calisma::Calisiyor)
     }
 
+    /// Çalıştırmada kullanılacak yorumlayıcıyı ayarlar (proje izole ortamı; `None` = sistem).
+    pub fn yorumlayici_ayarla(&mut self, yorumlayici: Option<PathBuf>) {
+        self.yorumlayici = yorumlayici;
+    }
+
+    /// O an ayarlı yorumlayıcı (proje sanal ortamı), varsa.
+    pub fn yorumlayici(&self) -> Option<&std::path::Path> {
+        self.yorumlayici.as_deref()
+    }
+
     /// Kodu **ayrı süreçte** başlatır (varsayılan limitlerle).  Çıktı temizlenir.
     pub fn baslat(&mut self, kod: &str, modu: CalismaModu) {
         self.baslat_limitli(kod, modu, KodCalismaLimitleri::default());
     }
 
-    /// Kodu verili limitlerle başlatır.
+    /// Kodu verili limitlerle başlatır.  Proje ortamı ayarlıysa onun Python'unu kullanır.
     pub fn baslat_limitli(&mut self, kod: &str, modu: CalismaModu, limitler: KodCalismaLimitleri) {
         // Önceki çalışma varsa durdur (yeni başlatma temiz olsun).
         self.durdur();
         self.cikti.clear();
         self.modu = Some(modu);
-        match calistir_baslat(kod, modu, limitler) {
+        let sonuc = match &self.yorumlayici {
+            Some(y) => calistir_baslat_ile(y, kod, modu, limitler),
+            None => calistir_baslat(kod, modu, limitler),
+        };
+        match sonuc {
             Ok(t) => {
                 self.tutamac = Some(t);
                 self.durum = Calisma::Calisiyor;

@@ -1391,6 +1391,18 @@ impl Sahne {
                     self.gallery_acik = false;
                 }
             }
+            KabukAksiyon::AkisiKodAc => {
+                // Node ↔ kod köprüsü: açık akışı köprülü Python betiği olarak kod editöründe aç.
+                self.kod_editoru.node_olarak_ac(
+                    &self.node_tuvali.graf,
+                    self.node_tuvali.parametreler(),
+                    self.node_tuvali.son_sonuc(),
+                );
+                // Tek aktif görünüm: kod editörüne geç (canlı çift yönlü senkron yok — v1.x).
+                self.kod_editoru_acik = true;
+                self.node_tuvali_acik = false;
+                self.gallery_acik = false;
+            }
             KabukAksiyon::KomutPaleti => {
                 self.kabuk_bildirim = Some((
                     if tr {

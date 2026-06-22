@@ -56,6 +56,8 @@ pub enum KabukAksiyon {
     NodeEditoru,
     /// Kod editörünü merkezde aç/kapa (İP-06).
     KodEditoru,
+    /// Açık node akışını **kod olarak aç** (node ↔ kod köprüsü — İP-06).
+    AkisiKodAc,
     // ── Eklenti ──
     /// Eklentileri yönet (İP-07 host'u ile).
     EklentileriYonet,
@@ -110,6 +112,8 @@ impl KabukAksiyon {
             (NodeEditoru, En) => "Node Editor",
             (KodEditoru, Tr) => "Kod Editörü",
             (KodEditoru, En) => "Code Editor",
+            (AkisiKodAc, Tr) => "Akışı Kod Olarak Aç",
+            (AkisiKodAc, En) => "Open Flow as Code",
             (EklentileriYonet, Tr) => "Eklentileri Yönet…",
             (EklentileriYonet, En) => "Manage Plugins…",
             (DemoGalerisi, Tr) => "Bileşen Demoları",
@@ -159,6 +163,7 @@ impl KabukAksiyon {
                 | KomutPaleti
                 | NodeEditoru
                 | KodEditoru
+                | AkisiKodAc
                 | Hakkinda
                 | Cikis
         )
@@ -219,6 +224,7 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
             None,
             Some(NodeEditoru),
             Some(KodEditoru),
+            Some(AkisiKodAc),
             Some(KomutPaleti),
         ],
         Menu::Eklenti => &[Some(EklentileriYonet)],

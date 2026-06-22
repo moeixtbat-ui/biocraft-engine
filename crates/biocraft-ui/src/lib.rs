@@ -40,11 +40,12 @@ pub use components::{
     Skeleton, StatusBadge, Toast, ToastManager,
 };
 pub use i18n::Dil;
-// İP-06: Native kod editörü (1. kısım, Gün 22) — sekme/ağaç + saf-Rust artımlı vurgulama +
-// kodu ayrı süreçte çalıştırma (MK-02) + büyük dosya akışı (MK-09).  Node↔kod köprüsü + LSP Gün 23.
+// İP-06: Native kod editörü — sekme/ağaç + saf-Rust artımlı vurgulama + kodu ayrı süreçte
+// çalıştırma (MK-02) + büyük dosya akışı (MK-09) + **node↔kod köprüsü (ortak workspace)** +
+// **temel LSP** + **izole ortam** + **yerel geçmiş** (2. kısım, Gün 23).
 pub use editor::{
-    AkisGoruntuleyici, Belge, Calisma, CalismaModu, CalistirmaDurumu, KodDili, KodEditoru,
-    MetinTampon, ProjeAgaci,
+    AkisGoruntuleyici, Belge, Calisma, CalismaAlani, CalismaModu, CalistirmaDurumu, DegiskenDeger,
+    GecmisKaydi, KodDili, KodDugumTanimi, KodEditoru, MetinTampon, ProjeAgaci, YerelGecmis,
 };
 // İP-05: Node motoru (görsel akış sistemi) — tuval + tipli portlar + DAG + undo/redo +
 // paralel/önbellekli çalıştırma + `.bcflow` kayıt + SVG/PNG + node→Python (Gün 21 TAM).

@@ -21,6 +21,8 @@
 // MK-40: L4 modülü; yalnız L0/L1/L2/L3'e bağlı.  MK-52 renk token'dan, MK-53 metin i18n'den.
 // MK-02: kullanıcı kodu daima ayrı süreçte (biocraft-plugin-host/exec); in-process YASAK.
 
+pub mod bridge;
+pub mod history;
 pub mod run;
 pub mod syntax;
 pub mod tree;
@@ -29,6 +31,7 @@ pub mod tree;
 mod tests;
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,8 +40,16 @@ use egui::text::LayoutJob;
 use egui::{FontId, TextFormat};
 
 use crate::i18n::Dil;
+use crate::node::{NodeGraf, NodeKimlik};
 use crate::tokens::Tokenlar;
+use biocraft_plugin_host::exec::{
+    jedi_kur_rehberi, lsp_durumu, onek_al, tamamla_async, temel_tamamla, LspDurumu, SanalOrtam,
+    Tamamlama, TamamlamaIstegi, TamamlamaTutamac, TamamlamaYaniti,
+};
+use biocraft_sdk::node::Parametreler;
 
+pub use bridge::{CalismaAlani, DegiskenDeger, KodDugumTanimi};
+pub use history::{GecmisKaydi, YerelGecmis};
 pub use run::{Calisma, CalistirmaDurumu, CiktiSatiri};
 pub use syntax::{
     vurgula, BasitVurgulayici, Jeton, JetonTuru, KodDili, SatirDurumu, VurgulamaOnbellek,
@@ -356,10 +367,26 @@ pub struct KodEditoru {
     pub agac: ProjeAgaci,
     /// Çalıştırma durumu + çıktı.
     pub calistirma: CalistirmaDurumu,
+    /// **Ortak çalışma alanı** (node ↔ kod köprüsü) — tipli paylaşılan değişkenler.
+    pub calisma_alani: CalismaAlani,
+    /// Etkin belgenin yerel geçmişi (kaba taneli anlık görüntüler).
+    pub gecmis: YerelGecmis,
+    /// Projenin izole Python ortamı (varsa) — çalıştırma + jedi bu yorumlayıcıyı kullanır.
+    ortam: Option<SanalOrtam>,
+    /// jedi (akıllı tamamlama) durumu — [Kur] kararı için (proje ortamına göre).
+    lsp: LspDurumu,
+    /// İmlecin o anki öneki için temel tamamlama önerileri.
+    tamamlamalar: Vec<Tamamlama>,
+    /// Bekleyen jedi (out-of-process) tamamlama isteği — asenkron, UI'yi bloklamaz.
+    lsp_tutamac: Option<TamamlamaTutamac>,
+    /// Sağ köprü/ortam panelini göster.
+    pub kopru_paneli_acik: bool,
     /// Sistemde Python bulundu mu (çalıştır düğmesinin etkinliği için).
     python_var: bool,
     /// Etkin düzenlenebilir belgede son bilinen imleç bayt ofseti (hücre seçimi için).
     imlec_bayt: usize,
+    /// Bir çalışma bitince kod→node köprüsünü (sentinel) bir kez taramak için bayrak.
+    calisma_aktifti: bool,
 }
 
 impl Default for KodEditoru {
@@ -371,13 +398,27 @@ impl Default for KodEditoru {
 impl KodEditoru {
     /// Boş bir Python sekmesiyle yeni editör.
     pub fn yeni() -> Self {
+        let python_var = biocraft_plugin_host::python_bul().is_some();
         Self {
             belgeler: vec![Belge::bos()],
             aktif: 0,
             agac: ProjeAgaci::bos(),
             calistirma: CalistirmaDurumu::yeni(),
-            python_var: biocraft_plugin_host::python_bul().is_some(),
+            calisma_alani: CalismaAlani::yeni(),
+            gecmis: YerelGecmis::yeni(),
+            ortam: None,
+            // Henüz proje ortamı yok → sistem Python'una göre jedi durumu (genelde JediYok).
+            lsp: if python_var {
+                LspDurumu::JediYok
+            } else {
+                LspDurumu::PythonYok
+            },
+            tamamlamalar: Vec::new(),
+            lsp_tutamac: None,
+            kopru_paneli_acik: true,
+            python_var,
             imlec_bayt: 0,
+            calisma_aktifti: false,
         }
     }
 
@@ -447,6 +488,8 @@ impl KodEditoru {
             .aktif_belge()
             .and_then(|b| b.metin().map(str::to_owned))
         {
+            self.gecmis.anlik_al("çalıştırma", &kod);
+            self.calisma_aktifti = true;
             self.calistirma.baslat(&kod, CalismaModu::TamScript);
         }
     }
@@ -458,8 +501,145 @@ impl KodEditoru {
             .aktif_belge()
             .and_then(|b| b.metin().map(str::to_owned))
         {
+            self.gecmis.anlik_al("hücre", &tam);
             let hucre = hucre_bul(&tam, imlec).to_owned();
+            self.calisma_aktifti = true;
             self.calistirma.baslat(&hucre, CalismaModu::Hucre);
+        }
+    }
+
+    // ─── Köprü + izole ortam (Gün 23) ──────────────────────────────────────────
+
+    /// Projenin izole Python ortamını ayarlar: çalıştırma + jedi bu yorumlayıcıyı kullanır.
+    ///
+    /// Ortam henüz oluşturulmamış olabilir (`var_mi()==false`); o durumda sistem Python'una
+    /// düşülür ve jedi durumu yeniden hesaplanır ([Kur] yönlendirmesi için).
+    pub fn proje_ortami_ayarla(&mut self, ortam: SanalOrtam) {
+        let yorumlayici = ortam.var_mi().then(|| ortam.yorumlayici());
+        self.lsp = lsp_durumu(yorumlayici.as_deref());
+        self.calistirma.yorumlayici_ayarla(yorumlayici);
+        self.ortam = Some(ortam);
+    }
+
+    /// Çalıştırma/tamamlama için kullanılacak yorumlayıcı (proje ortamı varsa onunki).
+    fn aktif_yorumlayici(&self) -> Option<PathBuf> {
+        match &self.ortam {
+            Some(o) if o.var_mi() => Some(o.yorumlayici()),
+            _ => biocraft_plugin_host::python_bul(),
+        }
+    }
+
+    /// Ortak çalışma alanını ayarlar (örn. node çalıştırmasından gelen çıktılar).
+    pub fn calisma_alanini_ayarla(&mut self, alan: CalismaAlani) {
+        self.calisma_alani = alan;
+    }
+
+    /// **"Bu node'u kod olarak aç":** akışı köprülü Python betiğine çevirip yeni sekmede açar.
+    ///
+    /// Önsöz, `sonuc` verilirse node çıktılarını workspace olarak taşır (node → kod); sonsöz
+    /// çalışma sonunda workspace'i geri basar (kod → node).
+    pub fn node_olarak_ac(
+        &mut self,
+        graf: &NodeGraf,
+        parametreler: &HashMap<NodeKimlik, Parametreler>,
+        sonuc: Option<&crate::node::CalismaSonucu>,
+    ) {
+        // Köprü workspace'ini de güncelle (panelde görünür + sonraki çalıştırma okuyabilir).
+        if let Some(s) = sonuc {
+            self.calisma_alani = bridge::node_ciktilarini_al(graf, s);
+        }
+        let kod = bridge::node_olarak_kod(graf, parametreler, sonuc);
+        let mut belge = Belge::metinli("akis.py", KodDili::Python, kod);
+        belge.kirli = true;
+        self.belgeler.push(belge);
+        self.aktif = self.belgeler.len() - 1;
+    }
+
+    /// **"Bu kodu node akışına ekle":** etkin belgenin kodunu betik node'u tanımına sarar.
+    ///
+    /// Tam tersine-çevirme (kodu ayrıştırma) v1.x'tir; bu, kodu **olduğu gibi saran** bir node
+    /// tanımı döner (girişler workspace değişkenlerinden).
+    pub fn kod_dugumu_yap(&self) -> Option<KodDugumTanimi> {
+        let kod = self.aktif_belge().and_then(|b| b.metin())?;
+        let baslik = self
+            .aktif_belge()
+            .map(|b| b.baslik.clone())
+            .unwrap_or_else(|| "Betik".into());
+        Some(KodDugumTanimi::koddan(baslik, kod, &self.calisma_alani))
+    }
+
+    /// Çalışma bittiyse çıktıdaki **sentinel**'i tarayıp workspace'i günceller (kod → node).
+    fn kopru_sonucunu_topla(&mut self) {
+        if self.calisma_aktifti && !self.calistirma.calisiyor() {
+            self.calisma_aktifti = false;
+            let satirlar = self.calistirma.cikti.iter().map(|c| c.metin.as_str());
+            if let Some(alan) = bridge::cikti_workspace_ayikla(satirlar) {
+                self.calisma_alani = alan;
+            }
+        }
+    }
+
+    /// İmlecin o anki öneki için **temel** tamamlama önerilerini yeniler (saf-Rust, her zaman çalışır).
+    fn tamamlamalari_guncelle(&mut self) {
+        let Some(kod) = self.aktif_belge().and_then(|b| b.metin()) else {
+            self.tamamlamalar.clear();
+            return;
+        };
+        let (satir_metni, sutun) = imlec_satir_sutun(kod, self.imlec_bayt);
+        let onek = onek_al(&satir_metni, sutun);
+        if onek.len() < 2 {
+            self.tamamlamalar.clear();
+            return;
+        }
+        self.tamamlamalar = temel_tamamla(kod, &onek);
+    }
+
+    /// **jedi (out-of-process) akıllı tamamlama** başlatır — UI bloklanmaz; sonuç sonradan toplanır.
+    ///
+    /// Yalnız jedi hazırsa anlamlıdır; değilse sessizce yok sayılır (temel tamamlama sürer).
+    pub fn jedi_oner(&mut self) {
+        if !matches!(self.lsp, LspDurumu::Hazir) {
+            return;
+        }
+        let Some(yorumlayici) = self.aktif_yorumlayici() else {
+            return;
+        };
+        let Some(kod) = self
+            .aktif_belge()
+            .and_then(|b| b.metin())
+            .map(str::to_owned)
+        else {
+            return;
+        };
+        let (satir, sutun) = imlec_satir_no_sutun(&kod, self.imlec_bayt);
+        self.lsp_tutamac = Some(tamamla_async(
+            &yorumlayici,
+            TamamlamaIstegi { kod, satir, sutun },
+        ));
+    }
+
+    /// Bekleyen jedi sonucunu **bloklamadan** yoklar; geldiyse öneri listesini günceller (MK-07).
+    fn lsp_yokla(&mut self, ctx: &egui::Context) {
+        let Some(t) = &self.lsp_tutamac else { return };
+        match t.dene() {
+            Some(TamamlamaYaniti::Hazir(oneriler)) => {
+                if !oneriler.is_empty() {
+                    self.tamamlamalar = oneriler;
+                }
+                self.lsp_tutamac = None;
+            }
+            Some(TamamlamaYaniti::JediYok) => {
+                self.lsp = LspDurumu::JediYok;
+                self.lsp_tutamac = None;
+            }
+            Some(TamamlamaYaniti::Hata(_)) => {
+                // Yedek temel tamamlama zaten gösteriliyor; sessizce bırak.
+                self.lsp_tutamac = None;
+            }
+            None => {
+                // Henüz hazır değil → bir sonraki kareyi iste (donma yok).
+                ctx.request_repaint();
+            }
         }
     }
 
@@ -470,6 +650,12 @@ impl KodEditoru {
         if self.calistirma.calisiyor() {
             ui.ctx().request_repaint();
         }
+        // Çalışma bittiyse kod→node köprüsünü (sentinel) bir kez tara.
+        self.kopru_sonucunu_topla();
+        // İmleç önekine göre temel tamamlama önerilerini yenile.
+        self.tamamlamalari_guncelle();
+        // Bekleyen jedi (out-of-process) sonucunu bloklamadan yokla.
+        self.lsp_yokla(ui.ctx());
 
         // Üst: sekme şeridi + araç çubuğu.
         egui::TopBottomPanel::top("kod_ust")
@@ -490,6 +676,18 @@ impl KodEditoru {
                     acilacak = self.agac.ciz(ui, dil, tok);
                 });
             });
+
+        // Sağ: köprü (ortak workspace) + izole ortam + tamamlama + yerel geçmiş paneli.
+        if self.kopru_paneli_acik {
+            egui::SidePanel::right("kod_kopru")
+                .resizable(true)
+                .default_width(240.0)
+                .show_inside(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.kopru_ortam_paneli(ui, dil, tok);
+                    });
+                });
+        }
 
         // Alt: çıktı paneli.
         egui::TopBottomPanel::bottom("kod_cikti")
@@ -642,14 +840,80 @@ impl KodEditoru {
                 ui.separator();
                 ui.label(
                     egui::RichText::new(if tr {
-                        "⚠ Python bulunamadı — [Kur rehberi: Gün 23]"
+                        "⚠ Python bulunamadı — [Kur rehberi]"
                     } else {
-                        "⚠ Python not found — [Setup guide: Day 23]"
+                        "⚠ Python not found — [Setup guide]"
                     })
                     .color(tok.renk.uyari)
                     .small(),
                 );
             }
+
+            // Köprü/ortam paneli aç-kapa.
+            ui.separator();
+            if ui
+                .selectable_label(
+                    self.kopru_paneli_acik,
+                    if tr { "⇄ Köprü" } else { "⇄ Bridge" },
+                )
+                .on_hover_text(if tr {
+                    "Ortak çalışma alanı + izole ortam + tamamlama paneli"
+                } else {
+                    "Shared workspace + isolated env + completion panel"
+                })
+                .clicked()
+            {
+                self.kopru_paneli_acik = !self.kopru_paneli_acik;
+            }
+        });
+
+        // İkinci satır: LSP durumu + debugger/AI yüzeyi (etiketli — v1.x / yapılandırılmadı).
+        ui.horizontal(|ui| {
+            // Temel LSP (jedi) durumu — tam zekâ v1.x.
+            let (lsp_metin, lsp_renk) = match self.lsp {
+                LspDurumu::Hazir => (
+                    if tr { "⌨ LSP: jedi hazır (temel)" } else { "⌨ LSP: jedi ready (basic)" },
+                    tok.renk.basari,
+                ),
+                LspDurumu::JediYok => (
+                    if tr { "⌨ LSP: temel — [jedi Kur]" } else { "⌨ LSP: basic — [Install jedi]" },
+                    tok.renk.uyari,
+                ),
+                LspDurumu::PythonYok => (
+                    if tr { "⌨ LSP: Python yok" } else { "⌨ LSP: no Python" },
+                    tok.renk.metin_soluk,
+                ),
+            };
+            ui.label(egui::RichText::new(lsp_metin).color(lsp_renk).small())
+                .on_hover_text(if tr {
+                    "Temel tamamlama her zaman çalışır (saf-Rust). jedi: bağlam-duyarlı (ayrı süreç). Tam dil zekâsı v1.x."
+                } else {
+                    "Basic completion always works (pure-Rust). jedi: context-aware (separate process). Full intelligence v1.x."
+                });
+            ui.separator();
+            // Debugger v1.x (MVP'de log-tabanlı).
+            ui.label(
+                egui::RichText::new(if tr { "🐞 Hata ayıklama: v1.x" } else { "🐞 Debugger: v1.x" })
+                    .color(tok.renk.metin_soluk)
+                    .small(),
+            )
+            .on_hover_text(if tr {
+                "Adım adım hata ayıklama v1.x'e ertelendi; MVP'de çıktı/log tabanlı."
+            } else {
+                "Step debugger deferred to v1.x; MVP is log-based."
+            });
+            ui.separator();
+            // AI yardımı yüzeyi — yapılandırılmadı (MK-48).
+            ui.label(
+                egui::RichText::new(if tr { "✨ AI: yapılandırılmadı" } else { "✨ AI: not configured" })
+                    .color(tok.renk.metin_soluk)
+                    .small(),
+            )
+            .on_hover_text(if tr {
+                "Yapay zekâ yardımı yüzeyi hazır; gerçek AI İP-14'te bağlanır (MK-48)."
+            } else {
+                "AI help surface is present; real AI connects in İP-14 (MK-48)."
+            });
         });
 
         if tam {
@@ -660,6 +924,251 @@ impl KodEditoru {
         }
         if durdur {
             self.calistirma.durdur();
+        }
+    }
+
+    /// Sağ panel: ortak workspace (köprü) + izole ortam + temel tamamlama + yerel geçmiş.
+    fn kopru_ortam_paneli(&mut self, ui: &mut egui::Ui, dil: Dil, tok: &Tokenlar) {
+        let tr = matches!(dil, Dil::Tr);
+
+        // ── Ortak çalışma alanı (node ↔ kod köprüsü) ──
+        ui.label(
+            egui::RichText::new(if tr {
+                "Ortak çalışma alanı"
+            } else {
+                "Shared workspace"
+            })
+            .strong()
+            .color(tok.renk.metin),
+        );
+        ui.label(
+            egui::RichText::new(if tr {
+                "Node ↔ kod arasında paylaşılan tipli değişkenler"
+            } else {
+                "Typed variables shared between node ↔ code"
+            })
+            .color(tok.renk.metin_soluk)
+            .small(),
+        );
+        if self.calisma_alani.is_empty() {
+            ui.label(
+                egui::RichText::new(if tr {
+                    "(boş — bir akış çalıştırıp \"kod olarak aç\" deneyin)"
+                } else {
+                    "(empty — run a flow and \"open as code\")"
+                })
+                .italics()
+                .color(tok.renk.metin_soluk)
+                .small(),
+            );
+        } else {
+            for (ad, deg) in self.calisma_alani.tumu() {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(ad).monospace().color(tok.renk.vurgu));
+                    ui.label(
+                        egui::RichText::new(format!(": {}", deg.tur_adi()))
+                            .small()
+                            .color(tok.renk.metin_soluk),
+                    );
+                });
+                ui.label(
+                    egui::RichText::new(format!("   {}", deg.ozet()))
+                        .monospace()
+                        .small()
+                        .color(tok.renk.metin),
+                );
+            }
+        }
+
+        ui.separator();
+
+        // ── İzole ortam (sanal ortam + paketler + sürüm kilidi) ──
+        ui.label(
+            egui::RichText::new(if tr {
+                "İzole ortam"
+            } else {
+                "Isolated environment"
+            })
+            .strong()
+            .color(tok.renk.metin),
+        );
+        match &self.ortam {
+            None => {
+                ui.label(
+                    egui::RichText::new(if tr {
+                        "Proje açık değil — ortam projeyle gelir."
+                    } else {
+                        "No project open — env comes with a project."
+                    })
+                    .color(tok.renk.metin_soluk)
+                    .small(),
+                );
+            }
+            Some(o) if o.var_mi() => {
+                ui.label(
+                    egui::RichText::new(if tr {
+                        "● Sanal ortam hazır (.venv)"
+                    } else {
+                        "● Virtual env ready (.venv)"
+                    })
+                    .color(tok.renk.basari)
+                    .small(),
+                );
+                if let Ok(kilit) = o.kilit_oku() {
+                    ui.label(
+                        egui::RichText::new(if tr {
+                            format!("Kilitli paket: {}", kilit.len())
+                        } else {
+                            format!("Locked packages: {}", kilit.len())
+                        })
+                        .small()
+                        .color(tok.renk.metin_soluk),
+                    );
+                }
+            }
+            Some(_) => {
+                ui.label(
+                    egui::RichText::new(if tr {
+                        "○ Ortam kurulmadı — [Ortamı kur]"
+                    } else {
+                        "○ Env not created — [Create env]"
+                    })
+                    .color(tok.renk.uyari)
+                    .small(),
+                );
+            }
+        }
+        // jedi [Kur] yönlendirmesi (eksik araç → [Kur] — TDA madde 1).
+        if matches!(self.lsp, LspDurumu::JediYok) {
+            let r = jedi_kur_rehberi();
+            ui.label(
+                egui::RichText::new(format!("[Kur] {}", r.nasil_cozulur))
+                    .small()
+                    .color(tok.renk.uyari),
+            )
+            .on_hover_text(r.neden);
+        }
+
+        ui.separator();
+
+        // ── Temel tamamlama (LSP yüzeyi) ──
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(if tr {
+                    "Tamamlama (temel)"
+                } else {
+                    "Completion (basic)"
+                })
+                .strong()
+                .color(tok.renk.metin),
+            );
+            // jedi akıllı öneri (out-of-process) — yalnız hazırsa etkin.
+            let jedi_hazir = matches!(self.lsp, LspDurumu::Hazir);
+            if ui
+                .add_enabled(
+                    jedi_hazir && self.lsp_tutamac.is_none(),
+                    egui::Button::new("🧠 jedi").small(),
+                )
+                .on_hover_text(if tr {
+                    "Bağlam-duyarlı öneri (ayrı süreçte jedi)"
+                } else {
+                    "Context-aware suggestion (jedi, separate process)"
+                })
+                .clicked()
+            {
+                self.jedi_oner();
+            }
+            if self.lsp_tutamac.is_some() {
+                ui.label(egui::RichText::new("…").color(tok.renk.bilgi).small());
+            }
+        });
+        if self.tamamlamalar.is_empty() {
+            ui.label(
+                egui::RichText::new(if tr {
+                    "Yazarken öneriler burada belirir."
+                } else {
+                    "Suggestions appear here as you type."
+                })
+                .italics()
+                .color(tok.renk.metin_soluk)
+                .small(),
+            );
+        } else {
+            for t in self.tamamlamalar.iter().take(12) {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&t.etiket)
+                            .monospace()
+                            .color(tok.anahtar_renk(t.tur.token_anahtari())),
+                    );
+                    if !t.detay.is_empty() {
+                        ui.label(
+                            egui::RichText::new(&t.detay)
+                                .small()
+                                .color(tok.renk.metin_soluk),
+                        );
+                    }
+                });
+            }
+        }
+
+        ui.separator();
+
+        // ── Yerel geçmiş (kod düzenlemelerine bağlı anlık görüntüler) ──
+        ui.label(
+            egui::RichText::new(if tr {
+                "Yerel geçmiş"
+            } else {
+                "Local history"
+            })
+            .strong()
+            .color(tok.renk.metin),
+        );
+        let mut geri_yukle: Option<String> = None;
+        if self.gecmis.is_empty() {
+            ui.label(
+                egui::RichText::new(if tr {
+                    "Çalıştırınca anlık görüntü alınır."
+                } else {
+                    "A snapshot is taken on run."
+                })
+                .italics()
+                .color(tok.renk.metin_soluk)
+                .small(),
+            );
+        } else {
+            // En yeniden eskiye.
+            for kayit in self.gecmis.kayitlar().iter().rev().take(10) {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("#{} {}", kayit.sira, kayit.etiket))
+                            .small()
+                            .color(tok.renk.metin_soluk),
+                    );
+                    if ui
+                        .small_button(if tr { "Geri yükle" } else { "Restore" })
+                        .clicked()
+                    {
+                        geri_yukle = Some(kayit.metin.clone());
+                    }
+                });
+            }
+        }
+        if let Some(metin) = geri_yukle {
+            // Geri yüklemeden önce mevcut hali de geçmişe al (kayıp olmasın).
+            if let Some(suanki) = self
+                .aktif_belge()
+                .and_then(|b| b.metin())
+                .map(str::to_owned)
+            {
+                self.gecmis.anlik_al("geri-yükleme öncesi", &suanki);
+            }
+            if let Some(b) = self.aktif_belge_mut() {
+                if let MetinTampon::Duzenlenebilir { metin: m } = &mut b.tampon {
+                    *m = metin;
+                    b.kirli = true;
+                }
+            }
         }
     }
 }
@@ -901,6 +1410,31 @@ pub fn hucre_bul(metin: &str, imlec: usize) -> &str {
         }
     }
     metin
+}
+
+/// Bir bayt ofsetinden, o satırın metnini ve **karakter** sütununu döner (tamamlama öneki için).
+fn imlec_satir_sutun(metin: &str, bayt: usize) -> (String, usize) {
+    let bayt = bayt.min(metin.len());
+    // Satır başını bul (son '\n' + 1).
+    let satir_bas = metin[..bayt].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    // Satır sonunu bul.
+    let satir_son = metin[satir_bas..]
+        .find('\n')
+        .map(|i| satir_bas + i)
+        .unwrap_or(metin.len());
+    let satir_metni = metin[satir_bas..satir_son].to_string();
+    // İmlece kadar olan kısımdaki karakter sayısı = sütun.
+    let sutun = metin[satir_bas..bayt].chars().count();
+    (satir_metni, sutun)
+}
+
+/// Bir bayt ofsetinden (0-tabanlı satır numarası, karakter sütunu) döner (jedi isteği için).
+fn imlec_satir_no_sutun(metin: &str, bayt: usize) -> (usize, usize) {
+    let bayt = bayt.min(metin.len());
+    let satir_no = metin[..bayt].bytes().filter(|&b| b == b'\n').count();
+    let satir_bas = metin[..bayt].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let sutun = metin[satir_bas..bayt].chars().count();
+    (satir_no, sutun)
 }
 
 /// Karakter indeksini bayt ofsetine çevirir (imleç → hücre seçimi).

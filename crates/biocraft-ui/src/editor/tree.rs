@@ -193,8 +193,14 @@ mod tests {
     use super::*;
 
     /// Test için benzersiz geçici dizin kurar (birkaç dosya + bir alt klasör).
+    ///
+    /// Dizin adı süreç kimliği **+ atomik sayaç** ile benzersizdir → paralel testler aynı
+    /// klasörü paylaşıp birbirinin `remove_dir_all`'ına yarışmaz (kararlı).
     fn ornek_proje() -> PathBuf {
-        let kok = std::env::temp_dir().join(format!("biocraft_agac_{}", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SAYAC: AtomicU64 = AtomicU64::new(0);
+        let n = SAYAC.fetch_add(1, Ordering::Relaxed);
+        let kok = std::env::temp_dir().join(format!("biocraft_agac_{}_{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&kok);
         std::fs::create_dir_all(kok.join("alt")).unwrap();
         std::fs::write(kok.join("main.py"), "print(1)").unwrap();

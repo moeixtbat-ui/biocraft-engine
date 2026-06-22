@@ -35,8 +35,14 @@ pub use biocraft_types;
 
 pub use capability::YetkiKumesi;
 pub use discover::{kesfet, KesfedilenEklenti};
-// İP-06: kod editöründen gelen kullanıcı kodunu ayrı süreçte çalıştırma (MK-02).
-pub use exec::{calistir_baslat, CalismaModu, CalismaOlay, CalismaTutamac, KodCalismaLimitleri};
+// İP-06: kod editöründen gelen kullanıcı kodunu ayrı süreçte çalıştırma (MK-02) +
+// temel LSP tamamlama (jedi out-of-process + saf-Rust yedek) + izole proje ortamı (Gün 23).
+pub use exec::{
+    calistir_baslat, calistir_baslat_ile, jedi_kur_rehberi, jedi_var_mi, lsp_durumu, onek_al,
+    tamamla_async, temel_tamamla, CalismaModu, CalismaOlay, CalismaTutamac, KodCalismaLimitleri,
+    KuruluPaket, LspDurumu, PaketGereksinimi, SanalOrtam, Tamamlama, TamamlamaIstegi,
+    TamamlamaTuru, TamamlamaTutamac, TamamlamaYaniti,
+};
 pub use harden::{cekirdek_arg_dogrula, AyristirmaLimitleri, SurecSinirlari};
 pub use install::{BcextPaket, GuncellemeSonucu, Kurucu, KurulumSonucu};
 pub use isolate::{CokmeKarari, EklentiSagligi, IzolasyonYoneticisi, KaynakKullanim};

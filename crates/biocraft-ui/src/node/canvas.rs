@@ -447,6 +447,16 @@ impl NodeTuvali {
         python_disa_aktar(&self.graf, &self.parametreler)
     }
 
+    /// Node parametreleri (node ↔ kod köprüsü için — "akışı kod olarak aç").
+    pub fn parametreler(&self) -> &HashMap<NodeKimlik, Parametreler> {
+        &self.parametreler
+    }
+
+    /// Son çalıştırma sonucu (varsa) — köprü, node çıktılarını workspace'e taşır.
+    pub fn son_sonuc(&self) -> Option<&CalismaSonucu> {
+        self.son_sonuc.as_ref()
+    }
+
     /// Pointer'a en yakın kabloyu (eşik içinde) döndürür — kablo önizlemesi için.
     fn kablo_vurus(&self, rect: Rect, pointer: Option<Pos2>) -> Option<BaglantiKimlik> {
         let p = pointer?;
