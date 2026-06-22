@@ -9,7 +9,8 @@
 use biocraft_state::AltSekmeSecimi;
 use biocraft_types::JobStatus;
 
-use crate::components::{EmptyState, IsIlerleme};
+use crate::ai::{ai_panel_ciz, AiPanelEylem, AiYuzey};
+use crate::components::IsIlerleme;
 use crate::i18n::Dil;
 use crate::tokens::Tokenlar;
 
@@ -152,12 +153,22 @@ impl AltPanel {
     }
 }
 
-/// Alt Panel'i Status Bar'ın hemen üstüne çizer ve panelin güncel yüksekliğini döner (kalıcı).
+/// Alt Panel'i Status Bar'ın hemen üstüne çizer; `(güncel yükseklik, AI panel eylemi)` döner.
 ///
-/// **Çizim sırası önemli:** Status Bar bu pane;den ÖNCE eklenmelidir (egui alt panelleri ekleme
+/// AI sekmesi gerçek AI yüzeyini ([`ai_panel_ciz`]) çizer; ürettiği eylem (sağlayıcı ekle / AI'ı
+/// aç / eylem uygula) çağırana iletilir.
+///
+/// **Çizim sırası önemli:** Status Bar bu panelden ÖNCE eklenmelidir (egui alt panelleri ekleme
 /// sırasına göre dipten yukarı yığar) → bu panel Status Bar'ın üstünde oturur.
-pub fn alt_panel_ciz(ctx: &egui::Context, panel: &mut AltPanel, dil: Dil, tok: &Tokenlar) -> f32 {
+pub fn alt_panel_ciz(
+    ctx: &egui::Context,
+    panel: &mut AltPanel,
+    ai: &mut AiYuzey,
+    dil: Dil,
+    tok: &Tokenlar,
+) -> (f32, Option<AiPanelEylem>) {
     let mut olculen = panel.yukseklik;
+    let mut ai_eylem = None;
     egui::TopBottomPanel::bottom("biocraft_alt_panel")
         .resizable(true)
         .default_height(panel.yukseklik)
@@ -193,19 +204,27 @@ pub fn alt_panel_ciz(ctx: &egui::Context, panel: &mut AltPanel, dil: Dil, tok: &
             });
             ui.separator();
 
-            // Seçili sekme içeriği.
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| match panel.aktif {
-                    AltSekme::Konsol => metin_listesi(ui, &panel.konsol, tok),
-                    AltSekme::Gunluk => metin_listesi(ui, &panel.gunluk, tok),
-                    AltSekme::Isler => isler_ciz(ui, &mut panel.isler, dil, tok),
-                    AltSekme::Ai => ai_ciz(ui, dil, tok),
-                });
+            // Seçili sekme içeriği.  AI sekmesi kendi kaydırmasını yönetir (sohbet + girdi şeridi);
+            // diğer sekmeler ortak ScrollArea kullanır.
+            match panel.aktif {
+                AltSekme::Ai => {
+                    ai_eylem = ai_panel_ciz(ui, ai, dil, tok);
+                }
+                aktif => {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| match aktif {
+                            AltSekme::Konsol => metin_listesi(ui, &panel.konsol, tok),
+                            AltSekme::Gunluk => metin_listesi(ui, &panel.gunluk, tok),
+                            AltSekme::Isler => isler_ciz(ui, &mut panel.isler, dil, tok),
+                            AltSekme::Ai => unreachable!(),
+                        });
+                }
+            }
 
             olculen = ui.min_rect().height();
         });
-    olculen.clamp(80.0, 600.0)
+    (olculen.clamp(80.0, 600.0), ai_eylem)
 }
 
 /// Konsol/günlük satırlarını monospace ile çizer.
@@ -234,25 +253,6 @@ fn isler_ciz(ui: &mut egui::Ui, isler: &mut [IsIlerleme], dil: Dil, tok: &Tokenl
         let _ = is_.show(ui, dil, tok);
         ui.add_space(tok.bosluk.xs);
     }
-}
-
-/// AI sohbet sekmesi — MVP'de yapılandırılmadı (MK-48); sahte sohbet gösterilmez.
-fn ai_ciz(ui: &mut egui::Ui, dil: Dil, tok: &Tokenlar) {
-    let tr = matches!(dil, Dil::Tr);
-    EmptyState::yeni(
-        "✨",
-        if tr {
-            "AI sohbet yapılandırılmadı"
-        } else {
-            "AI chat not configured"
-        },
-        if tr {
-            "AI yüzeyi bu sürümde yapılandırılmadı (MK-48). Sağlayıcı/anahtar ileride eklenir."
-        } else {
-            "The AI surface is not configured in this version (MK-48). Provider/key added later."
-        },
-    )
-    .show(ui, tok);
 }
 
 #[cfg(test)]

@@ -263,8 +263,11 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 name = "biocraft-ai-surface"
 version = "0.1.0"
 dependencies = [
+ "biocraft-data",
  "biocraft-sdk",
  "biocraft-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -413,6 +416,7 @@ dependencies = [
 name = "biocraft-ui"
 version = "0.1.0"
 dependencies = [
+ "biocraft-ai-surface",
  "biocraft-mem",
  "biocraft-plugin-host",
  "biocraft-render",

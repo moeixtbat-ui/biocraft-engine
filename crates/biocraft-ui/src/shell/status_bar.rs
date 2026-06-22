@@ -119,17 +119,20 @@ pub fn durum_cubugu(ctx: &egui::Context, bilgi: &DurumBilgisi, dil: Dil, tok: &T
                     let _ = rozet.show(ui, dil, tok);
                     ui.separator();
 
-                    // AI token sayacı (yer tutucu — AI yüzeyi bağlanınca dolar).
+                    // AI token sayacı — İP-14 yüzeyi etkin + gösterge açıkken oturum jetonuyla dolar;
+                    // aksi hâlde "—".
                     let token = match bilgi.token_sayaci {
                         Some(n) => format!("⊙ {n}"),
                         None => "⊙ —".to_string(),
                     };
+                    let token_ipucu = match bilgi.token_sayaci {
+                        Some(_) if tr => "AI oturum token sayacı",
+                        Some(_) => "AI session token counter",
+                        None if tr => "AI token sayacı (kapalı/yapılandırılmadı)",
+                        None => "AI token counter (off/not configured)",
+                    };
                     ui.label(egui::RichText::new(token).color(tok.renk.metin_soluk))
-                        .on_hover_text(if tr {
-                            "AI token sayacı (yapılandırılmadı)"
-                        } else {
-                            "AI token counter (not configured)"
-                        });
+                        .on_hover_text(token_ipucu);
                     ui.separator();
 
                     // Aktif arka plan işi özeti (yoksa "Hazır").

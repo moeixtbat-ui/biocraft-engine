@@ -10,3 +10,12 @@ description = "BioCraft Engine — L3: AI yüzey/iskelet (MVP'de yalnızca yüze
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
+# İP-10/MK-42/MK-43 (YZ-08): PHI/hassas sınırı AI çağrısının ÖNÜNDE durur.  Çıkış kapısı
+# (`privacy::classify::cikis_denetle`) L2'dedir; AI yüzeyi (L3) ona bağlanır → sınır eklentiye
+# değil çekirdeğe emanet (MK-40 ile kapının altına inip atlanamaz).
+biocraft-data  = { path = "../biocraft-data" }
+
+# YZ-00: tipli girdi/çıktı sözleşmeleri (serde) — kalıcılık + gelecekteki WIT/ABI için baştan hazır.
+# serde/serde_json zaten workspace ağacında (data/state/sdk) → YENİ dış bağımlılık değil.
+serde      = { workspace = true }
+serde_json = { workspace = true }

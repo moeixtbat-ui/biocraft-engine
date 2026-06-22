@@ -42,11 +42,11 @@ use biocraft_state::{
 use biocraft_ui::components::{ConfirmDialog, OnayKarari};
 use biocraft_ui::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu,
-    kisayol_penceresi, yan_panel, ActivityMod, AltPanel, AltSekme, AyarDeger, AyarEylem, Ayarlar,
-    BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery, KabukAksiyon, KapatmaIstegi, Kisayol,
-    KisayolDuzenleyici, KisayolHaritasi, KodEditoru, Komut as PaletKomut, KomutKaynak, KomutPaleti,
-    NodeTuvali, PaletEylem, ProjeSihirbazi, SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema,
-    Tokenlar, TusSetiProfili,
+    kisayol_penceresi, yan_panel, ActivityMod, AiPanelEylem, AiYuzey, AltPanel, AltSekme,
+    AyarDeger, AyarEylem, Ayarlar, BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery,
+    KabukAksiyon, KapatmaIstegi, Kisayol, KisayolDuzenleyici, KisayolHaritasi, KodEditoru,
+    Komut as PaletKomut, KomutKaynak, KomutPaleti, NodeTuvali, PaletEylem, ProjeSihirbazi,
+    SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema, Tokenlar, TusSetiProfili,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -395,6 +395,12 @@ struct Sahne {
     kisayol_duzenleyici: KisayolDuzenleyici,
     /// Klavye kısayolları penceresi açık mı?
     kisayol_penceresi_acik: bool,
+    // ── İP-14: AI yüzeyi (YZ-00/01/06/08) ──
+    /// AI yüzey durumu (sağlayıcı kayıt + sohbet + maliyet + denetim).  Gerçek motor yok →
+    /// "yapılandırılmadı" (MK-48); `--ai-demo` ile echo sağlayıcı kaydolup uçtan uca gösterilir.
+    ai: AiYuzey,
+    /// `--ai-demo` ile başlatıldı mı? (Her kare ayar senkronu AI'ı kapatmasın diye etkin tutulur.)
+    ai_demo: bool,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -692,6 +698,22 @@ impl ApplicationHandler for Uygulama {
         }
         kisayollar.kirli_temizle();
 
+        // İP-14: AI yüzeyini ayarlardan kur.  Gerçek motor YOK → "yapılandırılmadı" (MK-48).
+        // `--ai-demo` bayrağı: echo sağlayıcı kaydet + AI'ı aç (uçtan uca yüzeyi canlı görmek için;
+        // sağlayıcı kendini açıkça "gerçek AI değil" diye etiketler).
+        let mut ai = AiYuzey::yeni();
+        ai.etkin = ayarlar.mantik("ai.etkin");
+        ai.token_goster = ayarlar.mantik("ai.token_sayaci_goster");
+        ai.maliyet_goster = ayarlar.mantik("ai.maliyet_goster");
+        let ai_demo = std::env::args().any(|a| a == "--ai-demo");
+        if ai_demo {
+            ai.saglayici_ekle(std::sync::Arc::new(
+                biocraft_ui::biocraft_ai_surface::EchoSaglayici::yeni(),
+            ));
+            ai.etkin = true;
+            log::info!("--ai-demo: echo (demo) sağlayıcı kaydedildi; AI yüzeyi uçtan uca etkin.");
+        }
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
@@ -743,6 +765,8 @@ impl ApplicationHandler for Uygulama {
             kisayollar,
             kisayol_duzenleyici: KisayolDuzenleyici::default(),
             kisayol_penceresi_acik: false,
+            ai,
+            ai_demo,
         });
     }
 
@@ -947,6 +971,8 @@ impl Sahne {
         // İP-12: ayar ekranı eylemi + fabrika sıfırlama onayı (closure sonrası uygulanır).
         let mut ayar_eylem: Option<AyarEylem> = None;
         let mut fabrika_onay_sonuc: Option<OnayKarari> = None;
+        // İP-14: AI panelinin ürettiği eylem (sağlayıcı ekle / AI'ı aç / eylem uygula) — closure sonrası işlenir.
+        let mut ai_panel_eylem: Option<AiPanelEylem> = None;
         let ayarlar_acik = self.ayarlar_acik;
         // İP-12 (3. derece): durum göstergeleri ayardan açılır/kapanır.  Veriler closure öncesi
         // okunur (donanım/FPS gerçek; token AI yapılandırılmadığı için "—").
@@ -955,6 +981,15 @@ impl Sahne {
         let g_sic = self.ayarlar.mantik("performans.sicaklik_goster");
         let g_tok = self.ayarlar.mantik("ai.token_sayaci_goster");
         let ai_etkin = self.ayarlar.mantik("ai.etkin");
+        let g_maliyet = self.ayarlar.mantik("ai.maliyet_goster");
+        // İP-14: AI yüzeyini ayarlarla senkronla + biriken akış olaylarını işle (UI donmaz, MK-07).
+        // `--ai-demo` modunda AI etkin/göstergeler zorla açık (ayardan bağımsız canlı demo).
+        self.ai.etkin = ai_etkin || self.ai_demo;
+        self.ai.token_goster = g_tok || self.ai_demo;
+        self.ai.maliyet_goster = g_maliyet || self.ai_demo;
+        self.ai.yokla();
+        let ai_token = self.ai.durum_token();
+        let ai_mesgul = self.ai.mesgul();
         let gostergeli = g_fps || g_ram || g_sic || g_tok;
         let ram_orani = donanim.son_ornek.ram_orani;
         let sicaklik = self
@@ -1000,14 +1035,20 @@ impl Sahne {
                 bildirim: bildirim.as_deref(),
                 donanim: &donanim,
                 oto: &self.oto_ayar,
-                cevrimici: false,   // gerçek ağ İP-15; şimdilik çevrimdışı.
-                token_sayaci: None, // AI yüzeyi (İP-14) bağlanınca dolar.
+                cevrimici: false,       // gerçek ağ İP-15; şimdilik çevrimdışı.
+                token_sayaci: ai_token, // İP-14: AI yüzeyi etkin + token göstergesi açıksa dolar.
                 aktif_islem: aktif_islem.as_deref(),
             };
             kabuk_durum_cubugu(c, &durum_bilgi, dil, &tok);
-            // 3) Alt Panel (Status Bar üstünde) — Konsol/İşler/AI/Günlük.
+            // 3) Alt Panel (Status Bar üstünde) — Konsol/İşler/AI/Günlük.  AI sekmesi gerçek AI
+            //    yüzeyini çizer; ürettiği eylem closure sonrası işlenir.
             if self.alt_panel.acik {
-                self.alt_panel.yukseklik = alt_panel_ciz(c, &mut self.alt_panel, dil, &tok);
+                let (yukseklik, eylem) =
+                    alt_panel_ciz(c, &mut self.alt_panel, &mut self.ai, dil, &tok);
+                self.alt_panel.yukseklik = yukseklik;
+                if eylem.is_some() {
+                    ai_panel_eylem = eylem;
+                }
             }
             // 4) Activity Bar (sol) — tıklanan mod Side Panel içeriğini değiştirir.
             aktivite_cubugu(c, &mut self.aktif_mod, dil, &tok);
@@ -1181,6 +1222,37 @@ impl Sahne {
             if matches!(k, OnayKarari::Onayla) {
                 self.ayarlar.fabrika_sifirla();
             }
+        }
+        // İP-14: AI panelinin ürettiği eylemi işle (closure dışında; self serbest).
+        if let Some(eylem) = ai_panel_eylem {
+            let tr = matches!(self.gallery.dil, Dil::Tr);
+            match eylem {
+                // "AI sağlayıcı ekle" → ayarların AI bölümünü aç (gerçek motor eklenti, İP-14 sonrası).
+                AiPanelEylem::SaglayiciEkle => {
+                    self.ayarlar_acik = true;
+                    self.alt_panel.konsol_yaz(if tr {
+                        "AI sağlayıcı: Ayarlar → AI bölümünden yapılandırılır (gerçek motor eklenti olarak gelir)."
+                    } else {
+                        "AI provider: configure under Settings → AI (real engine ships as a plugin)."
+                    });
+                }
+                // "AI'ı aç" → ayar anahtarını aç (bir sonraki kare senkronu etkinleştirir).
+                AiPanelEylem::AiAc => {
+                    self.ayarlar.ayarla("ai.etkin", AyarDeger::Mantik(true));
+                }
+                // Eylem önerisi onaylandı — MVP'de gerçek motor yok; şeffaf bir not düşülür (kör otomasyon yok).
+                AiPanelEylem::EylemUygula(idx) => {
+                    self.alt_panel.konsol_yaz(if tr {
+                        format!("AI eylem önerisi #{idx} onaylandı (demo: gerçek motor bağlanınca uygulanır).")
+                    } else {
+                        format!("AI action suggestion #{idx} approved (demo: applied once a real engine is connected).")
+                    });
+                }
+            }
+        }
+        // AI bir yanıt akıtıyorsa sürekli yeniden çiz (akış canlı görünsün, MK-07).
+        if ai_mesgul || self.ai.mesgul() {
+            self.pencere.request_redraw();
         }
         // Özel düzen eylemlerini uygula (closure dışında; self + yonetici serbest).
         if let Some(ad) = duzen_kaydet {

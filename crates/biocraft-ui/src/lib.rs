@@ -14,6 +14,7 @@
 // lint bilinçli kapatılır (biocraft-mem ile aynı gerekçe).
 #![allow(clippy::result_large_err)]
 
+pub mod ai;
 pub mod command;
 pub mod components;
 pub mod editor;
@@ -29,6 +30,12 @@ pub mod wizard;
 // egui'yi yeniden dışa aktar: üst katmanlar (launcher/app) sürüm uyumu için
 // `biocraft_ui::egui` üzerinden erişebilir.
 pub use egui;
+
+// İP-14 (YZ-00/01/06/08): AI yüzeyi — sağlayıcı-bağımsız sözleşme (L3 `biocraft-ai-surface`)
+// üstüne kullanıcı arayüzü.  Durum [`ai::AiYuzey`] + panel + maliyet rozeti.  Gerçek motor yok →
+// "yapılandırılmadı" (MK-48); demo/örnekte echo sağlayıcı uçtan uca çalışır.
+pub use ai::{ai_panel_ciz, maliyet_rozeti_ciz, AiPanelEylem, AiYuzey};
+pub use biocraft_ai_surface;
 
 pub use biocraft_mem;
 pub use biocraft_render;

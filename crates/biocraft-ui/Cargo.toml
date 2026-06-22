@@ -17,6 +17,10 @@ biocraft-mem    = { path = "../biocraft-mem" }
 # İP-06: kod editörü kodu AYRI SÜREÇTE çalıştırır (MK-02) → out-of-process çalıştırma motoru
 # (`biocraft_plugin_host::exec`).  L4→L3 (render gibi); döngü yok (plugin-host UI'ye bağlanmaz).
 biocraft-plugin-host = { path = "../biocraft-plugin-host" }
+# İP-14 (YZ-00/01/06/08): AI yüzey sözleşmesi (provider/çıktı şeması/maliyet/çıkış kapısı).
+# L4→L3 (render/plugin-host gibi); döngü yok (ai-surface UI'ye bağlanmaz, saf sözleşmedir).
+# AI paneli/maliyet rozeti burada (L4) çizilir — token (MK-52) + i18n (MK-53) tek kaynağı UI'de.
+biocraft-ai-surface = { path = "../biocraft-ai-surface" }
 
 # MK-01: UI = winit + wgpu + egui (Tauri/Electron/Bevy yasak).
 # İP-16 bileşenleri saf egui ile yazılır; pencere/font yönetimi İP-04 (render host)
