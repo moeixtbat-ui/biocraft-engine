@@ -41,10 +41,12 @@ use biocraft_state::{
 // İP-03: ana kabuk (Title+Menü / Activity / Side / Editör+split / Alt panel / Inspector / Status).
 use biocraft_ui::components::{ConfirmDialog, OnayKarari};
 use biocraft_ui::{
-    aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu, yan_panel,
-    ActivityMod, AltPanel, AltSekme, AyarDeger, AyarEylem, Ayarlar, BolmeYonu, Dil, DurumBilgisi,
-    EditorAlani, Gallery, KabukAksiyon, KapatmaIstegi, KodEditoru, NodeTuvali, ProjeSihirbazi,
-    SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema, Tokenlar,
+    aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu,
+    kisayol_penceresi, yan_panel, ActivityMod, AltPanel, AltSekme, AyarDeger, AyarEylem, Ayarlar,
+    BolmeYonu, Dil, DurumBilgisi, EditorAlani, Gallery, KabukAksiyon, KapatmaIstegi, Kisayol,
+    KisayolDuzenleyici, KisayolHaritasi, KodEditoru, Komut as PaletKomut, KomutKaynak, KomutPaleti,
+    NodeTuvali, PaletEylem, ProjeSihirbazi, SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema,
+    Tokenlar, TusSetiProfili,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -197,9 +199,15 @@ impl Uygulama {
                     .ayarlar
                     .kirli_mi()
                     .then(|| sahne.ayarlar.kullanici_json()),
+                // İP-13: kısayollar kirliyse override JSON'unu al (yoksa None).
+                sahne
+                    .kisayollar
+                    .kirli_mi()
+                    .then(|| sahne.kisayollar.override_json()),
             )
         };
-        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w, kabuk, ayar_json) = okunan;
+        let (genislik, yukseklik, buyutulmus, tema, dil, panel_w, kabuk, ayar_json, kisayol_json) =
+            okunan;
 
         // 2) Değişen bir şey varsa durumu güncelle (kirli işaretle → otomatik kayıt tetiklenir).
         let d = self.yonetici.durum();
@@ -210,7 +218,8 @@ impl Uygulama {
             || d.pencere.buyutulmus != buyutulmus
             || (d.panel.sag_panel_genislik - panel_w).abs() > 0.5
             || kabuk_farkli(&d.kabuk, &kabuk)
-            || ayar_json.is_some();
+            || ayar_json.is_some()
+            || kisayol_json.is_some();
         let simdi = Instant::now();
         if degisti {
             self.yonetici.durum_guncelle(
@@ -227,13 +236,23 @@ impl Uygulama {
                         d.tercihler
                             .insert(AYAR_TERCIH_ANAHTARI.to_string(), j.clone());
                     }
+                    // İP-13: kısayol override'ları (varsayılandan farklar) tercihler'e yazılır.
+                    if let Some(j) = &kisayol_json {
+                        d.tercihler
+                            .insert(KISAYOL_TERCIH_ANAHTARI.to_string(), j.clone());
+                    }
                 },
                 simdi,
             );
-            // Ayarlar diske alındı → kirliliği temizle (tekrar tekrar yazma).
-            if ayar_json.is_some() {
+            // Diske alındı → kirliliği temizle (tekrar tekrar yazma).
+            if ayar_json.is_some() || kisayol_json.is_some() {
                 if let Some(sahne) = self.durum.as_mut() {
-                    sahne.ayarlar.kirli_temizle();
+                    if ayar_json.is_some() {
+                        sahne.ayarlar.kirli_temizle();
+                    }
+                    if kisayol_json.is_some() {
+                        sahne.kisayollar.kirli_temizle();
+                    }
                 }
             }
         }
@@ -367,6 +386,15 @@ struct Sahne {
     ayarlar_acik: bool,
     /// "Fabrika ayarlarına dön" onay diyaloğu (yıkıcı → onaylı).
     fabrika_onay: Option<ConfirmDialog>,
+    // ── İP-13: Komut paleti + klavye kısayolları ──
+    /// Komut paleti (Ctrl+Shift+P) — bulanık arama + son/sık kullanılanlar.
+    komut_paleti: KomutPaleti,
+    /// Özelleştirilebilir kısayol haritası (varsayılan + override; kalıcı `tercihler`'e yazılır).
+    kisayollar: KisayolHaritasi,
+    /// Kısayol penceresinin oturum durumu (yakalama modu + arama).
+    kisayol_duzenleyici: KisayolDuzenleyici,
+    /// Klavye kısayolları penceresi açık mı?
+    kisayol_penceresi_acik: bool,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -656,6 +684,14 @@ impl ApplicationHandler for Uygulama {
         );
         ayarlar.kirli_temizle(); // açılış senkronu "değişiklik" sayılmaz.
 
+        // İP-13: kısayol haritasını ayar tuş-seti profilinden kur → kalıcı override'ları uygula.
+        let profil = TusSetiProfili::ayardan(&ayarlar.secim("kisayol.tus_seti"));
+        let mut kisayollar = KisayolHaritasi::varsayilan(profil);
+        if let Some(json) = self.yonetici.durum().tercihler.get(KISAYOL_TERCIH_ANAHTARI) {
+            kisayollar.override_json_uygula(json);
+        }
+        kisayollar.kirli_temizle();
+
         self.durum = Some(Sahne {
             pencere,
             gpu,
@@ -703,6 +739,10 @@ impl ApplicationHandler for Uygulama {
             ayarlar,
             ayarlar_acik: false,
             fabrika_onay: None,
+            komut_paleti: KomutPaleti::yeni(),
+            kisayollar,
+            kisayol_duzenleyici: KisayolDuzenleyici::default(),
+            kisayol_penceresi_acik: false,
         });
     }
 
@@ -744,8 +784,14 @@ impl ApplicationHandler for Uygulama {
                     // 'O' → simülasyonu kapat (gerçek sensöre dön).
                     Key::Character("o" | "O") => sahne.isi_simule_kapat(),
                     Key::Named(NamedKey::Escape) => {
-                        temiz_kapat_yap(&mut self.yonetici);
-                        event_loop.exit();
+                        // İP-13: motorda açık bir modal (komut paleti/kısayol penceresi) varsa önce
+                        // onu kapat; yoksa eski davranış — uygulamadan çık.
+                        if sahne.app_mod == AppMod::Motor && sahne.escape_kapat() {
+                            sahne.pencere.request_redraw();
+                        } else {
+                            temiz_kapat_yap(&mut self.yonetici);
+                            event_loop.exit();
+                        }
                     }
                     _ => {}
                 }
@@ -889,6 +935,9 @@ impl Sahne {
         let mut olculen_yan_w = self.yan_panel_genislik;
         let mut olculen_inspector_w = self.inspector_genislik;
         let mut secilen_aksiyon: Option<KabukAksiyon> = None;
+        // İP-13: closure içinden toplanan komut paleti/kısayol eylemleri (closure sonrası uygulanır).
+        let mut palet_eylem: Option<PaletEylem> = None;
+        let mut kisayol_kaynak: Option<KomutKaynak> = None;
         // İP-03 Gün 12: closure içinden toplanan eylemler (closure sonrası uygulanır).
         let mut editor_kapatma: Option<KapatmaIstegi> = None;
         let mut detach_istendi = false;
@@ -1079,6 +1128,25 @@ impl Sahne {
                     c, dil, &tok, fps, g_fps, ram_orani, g_ram, sicaklik, g_sic, g_tok, ai_etkin,
                 );
             }
+
+            // ── İP-13: global klavye kısayolu gönderimi (palet/yakalama kapalıyken; yalnızca
+            //    hızlandırıcılar → metin girişini çalmaz).  Menü ile AYNI komuta çözülür (MK-51).
+            kisayol_kaynak = self.kisayol_gonder(c);
+            // İP-13: komut paleti (Ctrl+Shift+P) — bulanık arama; üstte modal overlay.
+            palet_eylem = self.komut_paleti.ciz(c, dil, &tok);
+            // İP-13: klavye kısayolları penceresi (yeniden ata + çakışma + varsayılana dön).
+            if self.kisayol_penceresi_acik {
+                let referans = self.kisayol_referans_listesi(dil);
+                kisayol_penceresi(
+                    c,
+                    &mut self.kisayol_penceresi_acik,
+                    &mut self.kisayollar,
+                    &mut self.kisayol_duzenleyici,
+                    &referans,
+                    dil,
+                    &tok,
+                );
+            }
         });
         // Ölçülen panel genişliklerini sakla (kalıcı duruma yazılır) + bandı gizle.
         self.yan_panel_genislik = olculen_yan_w;
@@ -1149,10 +1217,20 @@ impl Sahne {
             );
         }
 
-        // İP-03: seçilen kabuk aksiyonunu uygula (tema/dil/panel/çıkış); çıkış istendiyse bildir.
+        // İP-13: global kısayoldan çözülen komut (menü/palet ile AYNI tanım) + palet seçimi.
+        // Önce kısayol → sonra menü seçimi → sonra palet seçimi sırayla uygulanır.
         let mut cikis_istendi = false;
+        if let Some(kaynak) = kisayol_kaynak {
+            cikis_istendi |= self.komut_kaynak_uygula(kaynak);
+        }
+
+        // İP-03: seçilen kabuk aksiyonunu uygula (tema/dil/panel/çıkış); çıkış istendiyse bildir.
         if let Some(a) = secilen_aksiyon {
-            cikis_istendi = self.kabuk_aksiyon_uygula(a);
+            cikis_istendi |= self.kabuk_aksiyon_uygula(a);
+        }
+        // İP-13: komut paletinden seçilen eylem (komut çalıştır / sembole git).
+        if let Some(eylem) = palet_eylem {
+            cikis_istendi |= self.palet_eylem_uygula(eylem);
         }
 
         self.kareyi_sun(full, zemin_lin, kare_basi);
@@ -1568,15 +1646,16 @@ impl Sahne {
                 self.gallery_acik = false;
             }
             KabukAksiyon::KomutPaleti => {
-                self.kabuk_bildirim = Some((
-                    if tr {
-                        "Komut paleti İP-13'te gelecek (güç kullanıcı yolu)."
-                    } else {
-                        "Command palette arrives in İP-13 (power-user path)."
-                    }
-                    .to_string(),
-                    Instant::now(),
-                ));
+                // İP-13: paleti aç/kapa.  Açarken taze komut kümesini (kabuk + ipuçları) yükle.
+                if self.komut_paleti.acik {
+                    self.komut_paleti.kapat();
+                } else {
+                    let komutlar = self.palet_komutlari();
+                    self.komut_paleti.ac(komutlar);
+                }
+            }
+            KabukAksiyon::KisayolAyarlari => {
+                self.kisayol_penceresi_acik = !self.kisayol_penceresi_acik;
             }
             KabukAksiyon::Hakkinda => {
                 self.kabuk_bildirim = Some((
@@ -1592,6 +1671,125 @@ impl Sahne {
             KabukAksiyon::Cikis => return true,
             // Henüz ilgili paketi olmayan aksiyonlar menüde devre dışıdır; buraya düşmezler.
             _ => {}
+        }
+        false
+    }
+
+    // ── İP-13: Komut paleti + klavye kısayolları yardımcıları ──
+
+    /// Komut paleti için güncel komut kümesini kurar (kabuk aksiyonları + kısayol ipuçları).
+    /// Eklenti komutları İP-07 host'u UI uzantı kaydını bağladığında buraya eklenir (uzantı noktası).
+    fn palet_komutlari(&self) -> Vec<PaletKomut> {
+        let dil = self.gallery.dil;
+        KabukAksiyon::tumu()
+            .iter()
+            .map(|&a| {
+                let ks = self
+                    .kisayollar
+                    .kisayol(&KomutKaynak::Kabuk(a))
+                    .map(|k| k.goster());
+                PaletKomut::kabuktan(a, dil, ks, a.etkin_mi())
+            })
+            .collect()
+    }
+
+    /// Kısayol penceresi için aksiyon→ad referans listesi (palet ile aynı etiket kaynağı — MK-51).
+    fn kisayol_referans_listesi(&self, dil: Dil) -> Vec<(KomutKaynak, String)> {
+        KabukAksiyon::tumu()
+            .iter()
+            .filter(|a| a.etkin_mi())
+            .map(|&a| (KomutKaynak::Kabuk(a), a.etiket(dil).to_string()))
+            .collect()
+    }
+
+    /// O karede basılan bir klavye kısayolunu (yalnızca hızlandırıcı) komuta çözer.
+    /// Palet açıkken veya kısayol yakalama modunda gönderim yapılmaz (onlar kendi tuşlarını işler).
+    fn kisayol_gonder(&self, ctx: &egui::Context) -> Option<KomutKaynak> {
+        if self.komut_paleti.acik || self.kisayol_duzenleyici.yakalama.is_some() {
+            return None;
+        }
+        let mut bulunan = None;
+        ctx.input(|i| {
+            for olay in &i.events {
+                if let egui::Event::Key {
+                    key,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                    ..
+                } = olay
+                {
+                    if let Some(ks) = Kisayol::egui_olaydan(*key, *modifiers) {
+                        // Yalnızca Ctrl/Alt/Cmd içeren kombinasyonlar global gönderilir → sade harf
+                        // (metin girişi) çalınmaz.
+                        if ks.degistiriciler.hizlandirici_mi() {
+                            if let Some(k) = self.kisayollar.cozumle(&ks) {
+                                bulunan = Some(k);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        bulunan
+    }
+
+    /// Bir komut kaynağını (kabuk veya eklenti) uygular; çıkış istenirse `true`.
+    fn komut_kaynak_uygula(&mut self, kaynak: KomutKaynak) -> bool {
+        // Kısayolla çalıştırılan komut da son/sık kullanım belleğine yazılır (palet sıralaması).
+        self.komut_paleti.kullanildi(&kaynak);
+        match kaynak {
+            KomutKaynak::Kabuk(a) => self.kabuk_aksiyon_uygula(a),
+            KomutKaynak::Eklenti(kimlik) => {
+                self.eklenti_komutu_calistir(&kimlik);
+                false
+            }
+        }
+    }
+
+    /// Komut paletinden dönen eylemi uygular; çıkış istenirse `true`.
+    fn palet_eylem_uygula(&mut self, eylem: PaletEylem) -> bool {
+        match eylem {
+            // Palet, Calistir seçiminde kullanımı zaten kaydetti → burada yalnızca uygula.
+            PaletEylem::Calistir(KomutKaynak::Kabuk(a)) => self.kabuk_aksiyon_uygula(a),
+            PaletEylem::Calistir(KomutKaynak::Eklenti(kimlik)) => {
+                self.eklenti_komutu_calistir(&kimlik);
+                false
+            }
+            PaletEylem::SemboleGit(sembol) => {
+                let tr = matches!(self.gallery.dil, Dil::Tr);
+                self.alt_panel.konsol_yaz(if tr {
+                    format!("Sembole git: {sembol}")
+                } else {
+                    format!("Go to symbol: {sembol}")
+                });
+                false
+            }
+        }
+    }
+
+    /// Bir eklenti komutunu çalıştırır (İP-07 host'u bağlanınca gerçek çağrı; şimdilik konsol notu).
+    fn eklenti_komutu_calistir(&mut self, kimlik: &str) {
+        let tr = matches!(self.gallery.dil, Dil::Tr);
+        self.alt_panel.konsol_yaz(if tr {
+            format!("Eklenti komutu: {kimlik} (host bağlanınca çalışır)")
+        } else {
+            format!("Plugin command: {kimlik} (runs once the host is wired)")
+        });
+    }
+
+    /// Escape ile kapatılabilecek bir üst-katman (palet/kısayol penceresi) varsa kapatır → `true`.
+    /// Böylece açık bir modal varken Esc uygulamayı kapatmaz, yalnızca modalı kapatır.
+    fn escape_kapat(&mut self) -> bool {
+        if self.komut_paleti.acik {
+            self.komut_paleti.kapat();
+            return true;
+        }
+        if self.kisayol_penceresi_acik {
+            self.kisayol_penceresi_acik = false;
+            self.kisayol_duzenleyici.yakalama = None;
+            return true;
         }
         false
     }
@@ -2754,6 +2952,10 @@ fn taslak_to_girdi(taslak: &biocraft_ui::ProjeTaslagi) -> biocraft_data::ProjeKu
 /// (JSON dizgesi) saklanır.  Böylece tüm 3. derece ayarlar mevcut atomik+BLAKE3 durum deposuyla
 /// kalıcı olur; tema/dil ise geriye uyum için ayrıca `tema`/`dil` alanlarında tutulmaya devam eder.
 const AYAR_TERCIH_ANAHTARI: &str = "ip12_ayarlar";
+
+/// İP-13: özelleştirilmiş klavye kısayolları (profil varsayılanından farklar) `tercihler` içinde bu
+/// anahtarla (JSON) saklanır → yeniden atamalar oturumlar arası korunur.
+const KISAYOL_TERCIH_ANAHTARI: &str = "ip13_kisayollar";
 
 /// Kalıcı tema seçimini ayar sistemindeki seçim anahtarına eşler ("koyu"/"acik"/"yuksek_kontrast").
 fn tema_anahtari(t: TemaSecimi) -> &'static str {

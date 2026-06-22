@@ -14,6 +14,7 @@
 // lint bilinçli kapatılır (biocraft-mem ile aynı gerekçe).
 #![allow(clippy::result_large_err)]
 
+pub mod command;
 pub mod components;
 pub mod editor;
 pub mod i18n;
@@ -35,6 +36,13 @@ pub use biocraft_sdk;
 pub use biocraft_state;
 pub use biocraft_types;
 
+// İP-13: Komut paleti (Ctrl+Shift+P, bulanık arama <50 ms) + özelleştirilebilir klavye kısayolları
+// (çakışma uyarısı + varsayılana dön) + tuş seti profili kancası.  Menü ile palet TEK komut
+// tanımına (KabukAksiyon) bağlanır (MK-51); tüm aksiyonlar klavyeyle erişilebilir (MK-52).
+pub use command::{
+    kisayol_penceresi, EklentiKomut, Kisayol, KisayolDuzenleyici, KisayolHaritasi, Komut,
+    KomutKategori, KomutKaynak, KomutPaleti, PaletEylem, PaletModu, TusSetiProfili,
+};
 // İP-16 bileşenlerini kök seviyede pratik erişim için yeniden dışa aktar.
 pub use components::{
     ButceDialog, ConfirmDialog, EmptyState, ErrorDialog, EstimateDialog, Gallery, IsIlerleme,

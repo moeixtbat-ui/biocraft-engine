@@ -15,7 +15,7 @@ use crate::i18n::Dil;
 /// `biocraft-app` bu aksiyonu uygular (tema değiştir, çıkış, panel aç/kapa…).  Bazı aksiyonlar
 /// (Geri Al/Yinele, Proje Aç…) ilgili paket gelene kadar yer tutucudur; menüde **devre dışı**
 /// (gri) görünürler — "çalışıyormuş gibi" gösterilmez (MK-48 ruhu, TDA madde 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KabukAksiyon {
     // ── Dosya ──
     /// Yeni proje (İP-02 sihirbazı bağlanınca etkin).
@@ -50,8 +50,10 @@ pub enum KabukAksiyon {
     YogunMod,
     /// Özel düzen yöneticisini aç (kaydet/yükle/sil penceresi).
     DuzenYonetici,
-    /// Komut paletini aç (İP-13 — şimdilik bilgilendirici yer tutucu).
+    /// Komut paletini aç (İP-13 — Ctrl+Shift+P, bulanık arama).
     KomutPaleti,
+    /// Klavye kısayolları penceresini aç/kapa (İP-13 — yeniden ata + çakışma + varsayılana dön).
+    KisayolAyarlari,
     /// Ayarlar ekranını merkezde aç/kapa (İP-12).
     Ayarlar,
     /// Node (görsel akış) editörünü merkezde aç/kapa (İP-05).
@@ -72,7 +74,43 @@ pub enum KabukAksiyon {
     Hakkinda,
 }
 
+/// Tüm kabuk aksiyonları — **tek kaynak** (menü, komut paleti ve varsayılan kısayol seti hepsi bunu
+/// kullanır; yeni bir aksiyon yalnızca buraya + ilgili `match`'lere eklenir).  Sıra menü/palet
+/// görünüm sırasını etkilemez (palet kendi sıralar); kapsama bütünlüğü için kararlı tutulur.
+const TUM_AKSIYONLAR: &[KabukAksiyon] = &[
+    KabukAksiyon::YeniProje,
+    KabukAksiyon::ProjeAc,
+    KabukAksiyon::YeniSekme,
+    KabukAksiyon::Kaydet,
+    KabukAksiyon::Cikis,
+    KabukAksiyon::GeriAl,
+    KabukAksiyon::Yinele,
+    KabukAksiyon::TemaDegistir,
+    KabukAksiyon::DilDegistir,
+    KabukAksiyon::YanPanelAcKapa,
+    KabukAksiyon::AltPanelAcKapa,
+    KabukAksiyon::InspectorAcKapa,
+    KabukAksiyon::EditoruBol,
+    KabukAksiyon::YogunMod,
+    KabukAksiyon::DuzenYonetici,
+    KabukAksiyon::KomutPaleti,
+    KabukAksiyon::KisayolAyarlari,
+    KabukAksiyon::Ayarlar,
+    KabukAksiyon::NodeEditoru,
+    KabukAksiyon::KodEditoru,
+    KabukAksiyon::AkisiKodAc,
+    KabukAksiyon::EklentileriYonet,
+    KabukAksiyon::DemoGalerisi,
+    KabukAksiyon::Belgeler,
+    KabukAksiyon::Hakkinda,
+];
+
 impl KabukAksiyon {
+    /// Tüm kabuk aksiyonları (komut paleti + varsayılan kısayol seti bunu tarar — MK-51 tek kaynak).
+    pub fn tumu() -> &'static [KabukAksiyon] {
+        TUM_AKSIYONLAR
+    }
+
     /// Aksiyonun yerelleştirilmiş menü etiketi.
     pub fn etiket(self, dil: Dil) -> &'static str {
         use Dil::{En, Tr};
@@ -110,6 +148,8 @@ impl KabukAksiyon {
             (DuzenYonetici, En) => "Manage Layouts…",
             (KomutPaleti, Tr) => "Komut Paleti…",
             (KomutPaleti, En) => "Command Palette…",
+            (KisayolAyarlari, Tr) => "Klavye Kısayolları…",
+            (KisayolAyarlari, En) => "Keyboard Shortcuts…",
             (Ayarlar, Tr) => "Ayarlar…",
             (Ayarlar, En) => "Settings…",
             (NodeEditoru, Tr) => "Node Editörü",
@@ -166,6 +206,7 @@ impl KabukAksiyon {
                 | DuzenYonetici
                 | DemoGalerisi
                 | KomutPaleti
+                | KisayolAyarlari
                 | NodeEditoru
                 | KodEditoru
                 | AkisiKodAc
@@ -234,6 +275,7 @@ fn menu_ogeleri(menu: Menu) -> &'static [Option<KabukAksiyon>] {
             None,
             Some(Ayarlar),
             Some(KomutPaleti),
+            Some(KisayolAyarlari),
         ],
         Menu::Eklenti => &[Some(EklentileriYonet)],
         Menu::Yardim => &[Some(DemoGalerisi), None, Some(Belgeler), Some(Hakkinda)],
@@ -292,36 +334,9 @@ pub fn menu_cubugu(
 mod tests {
     use super::*;
 
-    /// Test kapsamı için tüm aksiyonlar (etiket/kısayol bütünlüğü).
-    const TUM_AKSIYONLAR: &[KabukAksiyon] = &[
-        KabukAksiyon::YeniProje,
-        KabukAksiyon::ProjeAc,
-        KabukAksiyon::YeniSekme,
-        KabukAksiyon::Kaydet,
-        KabukAksiyon::Cikis,
-        KabukAksiyon::GeriAl,
-        KabukAksiyon::Yinele,
-        KabukAksiyon::TemaDegistir,
-        KabukAksiyon::DilDegistir,
-        KabukAksiyon::YanPanelAcKapa,
-        KabukAksiyon::AltPanelAcKapa,
-        KabukAksiyon::InspectorAcKapa,
-        KabukAksiyon::EditoruBol,
-        KabukAksiyon::YogunMod,
-        KabukAksiyon::DuzenYonetici,
-        KabukAksiyon::DemoGalerisi,
-        KabukAksiyon::KomutPaleti,
-        KabukAksiyon::NodeEditoru,
-        KabukAksiyon::KodEditoru,
-        KabukAksiyon::Ayarlar,
-        KabukAksiyon::EklentileriYonet,
-        KabukAksiyon::Belgeler,
-        KabukAksiyon::Hakkinda,
-    ];
-
     #[test]
     fn tum_aksiyon_etiketleri_iki_dilde_dolu_ve_farkli() {
-        for &a in TUM_AKSIYONLAR {
+        for &a in KabukAksiyon::tumu() {
             assert!(!a.etiket(Dil::Tr).is_empty(), "TR etiket boş: {a:?}");
             assert!(!a.etiket(Dil::En).is_empty(), "EN etiket boş: {a:?}");
         }
