@@ -1,0 +1,50 @@
+harici_veri = []
+
+[kimlik]
+ad = "hvfhgf"
+aciklama = ""
+sablon = "genomik"
+olusturma = "2026-06-22T05:42:03.882976600Z"
+degistirme = "2026-06-22T05:42:03.882976600Z"
+
+[kimlik.biocraft_surumu]
+major = 0
+minor = 1
+patch = 0
+
+[kimlik.format_surumu]
+major = 1
+minor = 0
+patch = 0
+
+[olusturan]
+kurum = ""
+
+[siniflandirma]
+sinif = "Normal"
+uyumluluk = []
+lisans = ""
+etiketler = []
+
+[gizlilik]
+tamamen_yerel = true
+ai_havuzu_katki = false
+dagitik_ag_etkin = false
+determinizm = "HizliKesif"
+
+[guvenlik]
+sifreleme = true
+
+[veri]
+yerlesim = "Yerel"
+buyuk_veri = "Referans"
+akis_modu = false
+
+[[goc]]
+tarih = "2026-06-22T05:42:03.882976600Z"
+aciklama = "İlk oluşturma"
+
+[goc.surum]
+major = 1
+minor = 0
+patch = 0
