@@ -4,10 +4,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
-description = "BioCraft Engine — L3: Iroh P2P arayüzü (yalnız kanca — MK-50, MK-40)"
+description = "BioCraft Engine — L3: dağıtık ağ PASİF kancaları (Iroh arayüz iskeleti — MK-50, MK-42, MK-43, MK-40)"
 
 # MK-40: L3 — yalnızca L0/L1/L2 katmanlarına bağlı; üst katmanlara bağlantı yasak.
 [dependencies]
 biocraft-types = { path = "../biocraft-types" }
 biocraft-sdk   = { path = "../biocraft-sdk" }
 biocraft-ipc   = { path = "../biocraft-ipc" }
+# İP-10/MK-42/MK-43 (İP-15): P2P'ye giden HER yük, gönderimden ÖNCE çekirdek çıkış kapısından
+# (`privacy::classify::cikis_denetle`) geçer.  Kapı L2'dedir; bu ağ kancası (L3) ona bağlanır →
+# sınır eklentiye değil çekirdeğe emanet (MK-40 ile kapının altına inip atlanamaz).  ai-surface
+# ile aynı bağımlılık deseni.
+biocraft-data  = { path = "../biocraft-data" }
+
+# İP-15: tipli kanca sözleşmeleri (serde) — gelecekteki eklenti/WIT/ABI köprüsü için baştan hazır.
+# serde/serde_json zaten workspace ağacında (data/state/sdk/ai-surface) → YENİ dış bağımlılık değil.
+# NOT: `iroh` crate'i BİLEREK eklenmedi — gerçek QUIC/ağ bağımlılıkları "eklenti yokken sıfır
+# maliyet" (MK-50) ilkesini bozar ve gerçek bağlantı kodu getirir.  Iroh yalnızca ARAYÜZ olarak
+# tanımlanır (bkz. `iroh.rs`); gerçek iroh bağımlılığı dağıtık-ağ EKLENTİSİNDE yaşar.
+serde      = { workspace = true }
+serde_json = { workspace = true }
