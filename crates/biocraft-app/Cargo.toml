@@ -25,6 +25,10 @@ biocraft-data   = { path = "../biocraft-data" }
 biocraft-launcher = { path = "../biocraft-launcher" }
 # İP-21: gözlemlenebilirlik — L0 yapılandırılmış log kaydı + iz bağlamı + PII süzgeci (L5→L0).
 biocraft-types  = { path = "../biocraft-types" }
+# ÇE-00 (MK-19): çekirdek eklenti BioCraft Studio motorla AYNI pakette gelir → geliştirmede
+# "varsayılan kurulu" yan-yükleme.  Eklenti yalnızca biocraft-sdk'ya bağlıdır (MK-17); app onu
+# (L5↔L5, aynı katman) sideload eder.  Paketleme (İP-20) bu eklentiyi kuruluma gömer.
+biocraft-core-studio = { path = "../../plugins/biocraft-core-studio" }
 
 # MK-01: pencere + egui↔wgpu köprüsü host katmanındadır (render egui'ye bağlı değil).
 winit      = { workspace = true }

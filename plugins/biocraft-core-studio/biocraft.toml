@@ -1,0 +1,30 @@
+# BioCraft Studio — çekirdek eklenti manifesti (ÇE-00, 0-CE.1).
+#
+# Bu, motor paketiyle birlikte gelen "varsayılan kurulu" çekirdek eklentinin manifestidir
+# (MK-19).  İP-07 host'u bu dosyayı keşfeder (discover::kesfet), kimliği/sürümü/ABI'yi ve
+# istenen yetkileri doğrular; uyumsuzsa yükleme reddedilir + neden gösterilir (MK-13/MK-14).
+#
+# Kimlik spec 0-CE.1 ile BİREBİR: biocraft.core.studio  (ESKİ "bioforge" markası KULLANILMAZ).
+
+[eklenti]
+kimlik = "biocraft.core.studio"      # biocraft.<yayinci>.<eklenti> — spec 0-CE.1
+ad     = "BioCraft Studio"            # görünen ad (temel kit)
+surum  = "0.1.0"                      # çekirdekten BAĞIMSIZ sürümlenir (MK-19)
+katman = "native"                     # Tier-1 native (analiz/görüntüleme + veritabanı); WIT köprüsü ileride (MK-14)
+giris  = "biocraft-core-studio"       # yerleşim göreli giriş (native: crate kütüphanesi)
+
+[uyumluluk]
+abi          = "0.1"                  # hedeflenen ABI sürümü (MK-14; çekirdek ABI ile aynı major)
+cekirdek_min = "0.1.0"                # uyumlu en düşük çekirdek sürümü
+# cekirdek_max opsiyonel — şimdilik üst sınır yok
+
+[yetkiler]
+# İlan edilen yetkiler (kurulumda kullanıcıya görünür, çalışmada denetlenir — MK-13).
+#   fs  — proje VFS: veri okuma (ÇE-01)
+#   gpu — genom tuvali + 3B render (ÇE-02/ÇE-07)
+#   db  — yerel SQLite/DuckDB sorgu + birleşik veritabanı arama (ÇE-09)
+#   ai  — opsiyonel: AI-hazır arayüz (yüzey yapılandırılmadıysa eklenti AI'sız çalışır)
+# NOT: 'net' (uzak URL/S3 + veritabanı indirme, spec 0-CE.2) HENÜZ ilan EDİLMEZ — gerçek uzak
+#      erişim ÇE-01/ÇE-09 ile gelince eklenir.  Bugünkü iskelet uzak G/Ç yapmadığı için en az
+#      yetki ilkesi gereği ilan edilmedi; ilan edilmemiş 'net' kullanımı host tarafından reddedilir.
+istenen = ["fs", "gpu", "db", "ai"]

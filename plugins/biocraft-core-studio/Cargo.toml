@@ -1,0 +1,21 @@
+[package]
+name        = "biocraft-core-studio"
+version     = "0.1.0"          # MK-19: çekirdekten BAĞIMSIZ sürümlenir (workspace sürümünü almaz)
+edition.workspace = true
+license.workspace = true
+publish = false  # çekirdek eklenti; motor paketiyle gelir, crates.io'ya yayınlanmaz
+description = "BioCraft Studio — çekirdek analiz/görüntüleme/veritabanı eklentisi (ÇE-00 iskeleti)"
+
+# MK-17: Eklenti YALNIZCA biocraft-sdk üzerinden çekirdekle konuşur.  Motor crate'lerine
+# (biocraft-app, biocraft-ui, biocraft-plugin-host, …) DOĞRUDAN bağımlılık YASAKTIR.
+# biocraft-types'a da doğrudan değil, SDK'nın yeniden dışa aktarımı (biocraft_sdk::biocraft_types)
+# üzerinden erişilir → tek sınır.
+[dependencies]
+biocraft-sdk = { path = "../../crates/biocraft-sdk" }
+
+# Geliştirme/test bağımlılıkları — sevkiyat artefaktının parçası DEĞİL (MK-17'yi ihlal etmez):
+#   • plugin-host: keşif/yükleme/izolasyon entegrasyon testi (tests/yukleme.rs)
+#   • toml: "yalnızca sdk'ya bağlı" yapısal testinde kendi Cargo.toml'unu ayrıştırmak için
+[dev-dependencies]
+biocraft-plugin-host = { path = "../../crates/biocraft-plugin-host" }
+toml = { workspace = true }

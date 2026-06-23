@@ -15,14 +15,22 @@
 
 // MK-40: L1 katmanı — yalnızca L0'a (biocraft-types) bağlı; üst katman yasak.
 
+// ErrorReport zengin (ne/neden/çözüm) ve büyük bir tip; yetki denetimi gibi yüzeylerde onu
+// doğrudan döndürüyoruz (biocraft-plugin-host/biocraft-mem ile aynı desen).  Bilinçli karar.
+#![allow(clippy::result_large_err)]
+
 /// BioCraft temel tiplerini yeniden dışa aktar; SDK kullananlar tek bağımlılıkla erişir.
 pub use biocraft_types;
 
 use biocraft_types::{Capability, Version};
 
 pub mod data;
+pub mod eklenti;
 pub mod node;
 pub mod ui;
+
+// Aktivasyon kontratını kök seviyede de dışa aktar (eklentiler tek `use` ile erişir).
+pub use eklenti::{Aktivasyon, YetkiKapisi};
 
 // ─── ABI yüzeyi (WASM import/export sözleşmesi) ───────────────────────────────
 

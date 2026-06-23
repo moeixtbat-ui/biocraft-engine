@@ -44,10 +44,10 @@ use biocraft_ui::{
     aktivite_cubugu, alt_panel_ciz, baslik_cubugu, birakma_onizleme, kabuk_durum_cubugu,
     kisayol_penceresi, yan_panel, ActivityMod, AiPanelEylem, AiYuzey, AltPanel, AltSekme,
     AyarDeger, AyarEylem, Ayarlar, BioCraftPazar, BolmeYonu, Dil, DurumBilgisi, EditorAlani,
-    Gallery, KabukAksiyon, KapatmaIstegi, Kisayol, KisayolDuzenleyici, KisayolHaritasi, KodEditoru,
-    Komut as PaletKomut, KomutKaynak, KomutPaleti, NodeTuvali, OnboardingDurumu, OnboardingEylem,
-    OnboardingSablon, PaletEylem, PazarEylem, ProjeSihirbazi, SekmeTuru, SihirbazBaglam,
-    SihirbazSonucu, Tema, Tokenlar, TusSetiProfili,
+    EklentiKomut, Gallery, KabukAksiyon, KapatmaIstegi, Kisayol, KisayolDuzenleyici,
+    KisayolHaritasi, KodEditoru, Komut as PaletKomut, KomutKaynak, KomutPaleti, NodeTuvali,
+    OnboardingDurumu, OnboardingEylem, OnboardingSablon, PaletEylem, PazarEylem, ProjeSihirbazi,
+    SekmeTuru, SihirbazBaglam, SihirbazSonucu, Tema, Tokenlar, TusSetiProfili,
 };
 
 use egui_wgpu::ScreenDescriptor;
@@ -453,6 +453,10 @@ struct Sahne {
     /// İmzalı + delta + atomik + geri-alınabilir güncelleme orkestrasyonu (arka plan kontrol +
     /// "şimdi/sonra" onay).  MVP'de kaynak yapılandırılmamıştır; `--update-demo` ile yüzey canlı.
     guncelleme: GuncellemeDenetleyici,
+    // ── ÇE-00: Çekirdek eklenti (BioCraft Studio) — varsayılan kurulu, yan-yüklenmiş ──
+    /// Çekirdek eklenti aktivasyonunda dönen UI/komut/node kayıtları (MK-19; yalnız `biocraft-sdk`
+    /// üzerinden — MK-17).  Komut paletine eklenti komutları buradan beslenir.
+    cekirdek_studio: biocraft_core_studio::Aktivasyon,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -787,6 +791,24 @@ impl ApplicationHandler for Uygulama {
             BioCraftPazar::onbellek_ile(biocraft_ui::biocraft_net::kuratorlu_veri(simdi()));
         pazar.kurulu_tohumla(cekirdek.kimlik, cekirdek.surum);
 
+        // ÇE-00 (MK-19/MK-17): Çekirdek eklentiyi YAN-YÜKLE (geliştirme; paketleme bunu gömer).
+        // Birinci-parti çekirdek eklenti → ilan edilen yetkiler varsayılan onaylı.  Eklenti
+        // YALNIZCA biocraft-sdk üzerinden kayıt üretir; app onu UI uzantı noktalarına bağlar.
+        let cekirdek_studio =
+            biocraft_core_studio::aktiflestir(&biocraft_core_studio::yetki_kapisi_varsayilan());
+        {
+            use biocraft_core_studio::biocraft_sdk::ui::UiUzantiTuru;
+            log::info!(
+                "ÇE-00: çekirdek eklenti '{}' yan-yüklendi → Activity Bar/Side Panel: {} panel, \
+                 {} komut, {} ayar, {} node (yetkiler: fs/gpu/db/ai).",
+                biocraft_core_studio::KIMLIK,
+                cekirdek_studio.ui_say(UiUzantiTuru::Panel),
+                cekirdek_studio.ui_say(UiUzantiTuru::Komut),
+                cekirdek_studio.ui_say(UiUzantiTuru::Ayar),
+                cekirdek_studio.nodelar.len(),
+            );
+        }
+
         // İP-20: auto-updater'ı kur (varsayılan kanal: Kararlı).  `--update-demo` ile sahte kaynak,
         // aksi hâlde kaynak yapılandırılmadı (çevrimdışı/güvenli) → güncelleme sunulmaz.
         let mut guncelleme =
@@ -863,6 +885,7 @@ impl ApplicationHandler for Uygulama {
             pazar,
             pazar_acik: false,
             guncelleme,
+            cekirdek_studio,
         });
     }
 
@@ -2180,7 +2203,7 @@ impl Sahne {
     /// Eklenti komutları İP-07 host'u UI uzantı kaydını bağladığında buraya eklenir (uzantı noktası).
     fn palet_komutlari(&self) -> Vec<PaletKomut> {
         let dil = self.gallery.dil;
-        KabukAksiyon::tumu()
+        let mut komutlar: Vec<PaletKomut> = KabukAksiyon::tumu()
             .iter()
             .map(|&a| {
                 let ks = self
@@ -2189,7 +2212,19 @@ impl Sahne {
                     .map(|k| k.goster());
                 PaletKomut::kabuktan(a, dil, ks, a.etkin_mi())
             })
-            .collect()
+            .collect();
+        // ÇE-00: çekirdek eklentinin komut kayıtları (UiUzantiTuru::Komut) palette eklenir
+        // (İP-07 UI uzantı kaydının bağlandığı uzantı noktası).
+        use biocraft_core_studio::biocraft_sdk::ui::UiUzantiTuru;
+        for k in self.cekirdek_studio.ui_turden(UiUzantiTuru::Komut) {
+            let ek = EklentiKomut::yeni(k.kimlik.clone(), k.baslik.clone());
+            let ks = self
+                .kisayollar
+                .kisayol(&KomutKaynak::Eklenti(ek.kimlik.clone()))
+                .map(|x| x.goster());
+            komutlar.push(PaletKomut::eklentiden(&ek, ks));
+        }
+        komutlar
     }
 
     /// Kısayol penceresi için aksiyon→ad referans listesi (palet ile aynı etiket kaynağı — MK-51).
@@ -2271,6 +2306,22 @@ impl Sahne {
     /// Bir eklenti komutunu çalıştırır (İP-07 host'u bağlanınca gerçek çağrı; şimdilik konsol notu).
     fn eklenti_komutu_calistir(&mut self, kimlik: &str) {
         let tr = matches!(self.gallery.dil, Dil::Tr);
+        // ÇE-00: çekirdek eklenti komutları yan-yüklü olarak çalışır → anlamlı yanıt (uçtan uca).
+        use biocraft_core_studio::biocraft_sdk::ui::UiUzantiTuru;
+        let studio_baslik = self
+            .cekirdek_studio
+            .ui_turden(UiUzantiTuru::Komut)
+            .find(|k| k.kimlik == kimlik)
+            .map(|k| k.baslik.clone());
+        if let Some(baslik) = studio_baslik {
+            let msg = if tr {
+                format!("{baslik} — {}", biocraft_core_studio::merhaba())
+            } else {
+                format!("{baslik} — BioCraft Studio core plugin is active.")
+            };
+            self.alt_panel.konsol_yaz(msg);
+            return;
+        }
         self.alt_panel.konsol_yaz(if tr {
             format!("Eklenti komutu: {kimlik} (host bağlanınca çalışır)")
         } else {

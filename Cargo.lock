@@ -215,6 +215,7 @@ dependencies = [
 name = "biocraft-app"
 version = "0.1.0"
 dependencies = [
+ "biocraft-core-studio",
  "biocraft-data",
  "biocraft-launcher",
  "biocraft-mem",
@@ -231,6 +232,15 @@ dependencies = [
  "serde_json",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "biocraft-core-studio"
+version = "0.1.0"
+dependencies = [
+ "biocraft-plugin-host",
+ "biocraft-sdk",
+ "toml",
 ]
 
 [[package]]

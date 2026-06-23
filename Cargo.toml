@@ -21,6 +21,9 @@ members = [
     "crates/biocraft-launcher",
     # L5 — ana binary
     "crates/biocraft-app",
+    # Çekirdek eklenti — motordan AYRI crate; yalnızca biocraft-sdk'ya bağlı (MK-17, ÇE-00).
+    # Topolojide L5 sayılır (bkz. scripts/check-topology.py); motor paketiyle "varsayılan kurulu" gelir (MK-19).
+    "plugins/biocraft-core-studio",
 ]
 # MK-58 (İP-09): fuzzing hedefleri ayrı bir crate'tir ve workspace ÜYESİ DEĞİLDİR — yalnızca
 # `cargo +nightly fuzz` (libfuzzer, nightly) ile derlenir.  Hariç tutulması, normal

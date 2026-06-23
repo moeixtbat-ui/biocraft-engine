@@ -30,11 +30,14 @@ use biocraft_ui::{Dil, Tokenlar};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Gömülü çekirdek eklentinin kimliği (pazar/host'ta "Kurulu" görünür; sihirbaz/onboarding ile aynı).
-pub const CEKIRDEK_EKLENTI_KIMLIK: &str = "biocraft.studio.core";
+///
+/// **Tek doğruluk kaynağı:** kimlik/ad/sürüm doğrudan çekirdek eklenti crate'inden (ÇE-00,
+/// spec 0-CE.1 `biocraft.core.studio`) alınır → app ile eklenti arasında ID kayması imkânsız.
+pub const CEKIRDEK_EKLENTI_KIMLIK: &str = biocraft_core_studio::KIMLIK;
 /// Gömülü çekirdek eklentinin görünen adı.
-pub const CEKIRDEK_EKLENTI_AD: &str = "BioCraft Studio";
+pub const CEKIRDEK_EKLENTI_AD: &str = biocraft_core_studio::AD;
 /// Çekirdek eklenti sürümü — **motor sürümünden bağımsız** ilerler (MK-19: bağımsız sürümlenir).
-pub const CEKIRDEK_EKLENTI_SURUM: &str = "0.1.0";
+pub const CEKIRDEK_EKLENTI_SURUM: &str = biocraft_core_studio::SURUM;
 
 /// Motorla aynı pakette gelen, ilk açılışta kurulu olan çekirdek eklenti tanımı.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -502,7 +505,9 @@ mod tests {
     #[test]
     fn gomulu_cekirdek_eklenti_hazir() {
         let e = cekirdek_eklenti();
-        assert_eq!(e.kimlik, "biocraft.studio.core");
+        // Kimlik spec 0-CE.1 ile birebir + çekirdek eklenti crate'iyle tutarlı (ÇE-00).
+        assert_eq!(e.kimlik, "biocraft.core.studio");
+        assert_eq!(e.kimlik, biocraft_core_studio::KIMLIK);
         // MK-19: gömülü geldiği için "eklenti yok" ekranı asla görünmez.
         assert!(!eklenti_yok_ekrani_gerekli());
         // Bağımsız sürümlenir — geçerli SemVer.

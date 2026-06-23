@@ -89,7 +89,7 @@ pub fn kuratorlu_veri(now: Timestamp) -> PazarVerisi {
     PazarVerisi {
         ogeler: vec![
             PazarOgesi {
-                kimlik: "biocraft.studio.core".into(),
+                kimlik: "biocraft.core.studio".into(),
                 ad: "BioCraft Studio".into(),
                 yayinci: "BioCraft".into(),
                 ozet: "Genom tarayıcı + varyant + 3B + veritabanı (çekirdek eklenti).".into(),

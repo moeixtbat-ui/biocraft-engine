@@ -4,18 +4,21 @@
 # App ilk açılışta bu kimliği "kurulu" işaretler (crates/biocraft-app/src/update/mod.rs::
 # cekirdek_eklenti()) → "eklenti yok" ekranı asla görünmez. Çekirdek eklenti motordan BAĞIMSIZ
 # sürümlenir (MK-19); gerçek ikilisi/.bcext'i çekirdek eklenti deposunun CI'sından buraya kopyalanır.
+# Bu dosya, plugins/biocraft-core-studio/biocraft.toml ile BİREBİR aynı sözleşmedir (ÇE-00).
 
 [eklenti]
-kimlik = "biocraft.studio.core"      # sihirbaz/onboarding/pazar ile AYNI kimlik
+kimlik = "biocraft.core.studio"      # spec 0-CE.1; sihirbaz/onboarding/pazar ile AYNI kimlik
 ad     = "BioCraft Studio"
 surum  = "0.1.0"                      # motordan bağımsız (MK-19)
 katman = "native"                     # çekirdek eklenti native (analiz/görüntüleme + veritabanı)
-giris  = "biocraft-studio"            # yerleşim göreli giriş
+giris  = "biocraft-core-studio"       # yerleşim göreli giriş
 
 [uyumluluk]
 abi          = "0.1"                  # ABI uyumu korunur (MK-14)
 cekirdek_min = "0.1.0"
 
 [yetkiler]
-# Çekirdek eklenti analiz/görüntüleme + veritabanı erişimi ister; PHI sınırı çekirdekte (MK-42/43).
-istenen = ["fs", "veritabani"]
+# Çekirdek eklenti: fs (veri okuma) + gpu (genom/3B) + db (veritabanı) + ai (opsiyonel).
+# Geçerli yetki adları: net/fs/gpu/ai/db (biocraft-sdk::yetenek_ayristir).  PHI sınırı çekirdekte (MK-42/43).
+# net (uzak erişim) ÇE-01/ÇE-09 ile geldiğinde eklenir.
+istenen = ["fs", "gpu", "db", "ai"]

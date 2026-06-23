@@ -70,6 +70,15 @@ impl YetkiKumesi {
     pub fn sayi(&self) -> usize {
         self.verilen.len()
     }
+
+    /// Host otoritesinden (bu küme) eklentiye verilecek **SDK yetki kapısını** üretir (MK-17).
+    ///
+    /// Host `istenen ∩ onaylanan` kümeyi hesaplar (`ver`); aktivasyonda eklentiye yalnızca bu
+    /// kapı verilir.  Böylece eklenti host'a bağlanmadan (yalnızca `biocraft-sdk` sınırından)
+    /// yetenek denetimi yapabilir; otorite host'ta kalır.
+    pub fn kapi(&self) -> biocraft_sdk::YetkiKapisi {
+        biocraft_sdk::YetkiKapisi::yeni(self.verilen.iter().copied())
+    }
 }
 
 #[cfg(test)]
@@ -115,5 +124,15 @@ mod tests {
     fn denetle_yetki_varsa_gecer() {
         let k = YetkiKumesi::ver(&[Capability::Fs], &[Capability::Fs]);
         assert!(k.denetle(Capability::Fs).is_ok());
+    }
+
+    #[test]
+    fn kapi_host_otoritesini_yansitir() {
+        // İstenen {fs, net}, onaylanan {fs} → verilen {fs}; üretilen SDK kapısı da yalnız fs verir.
+        let k = YetkiKumesi::ver(&[Capability::Fs, Capability::Net], &[Capability::Fs]);
+        let kapi = k.kapi();
+        assert!(kapi.iste(Capability::Fs).is_ok());
+        assert!(kapi.iste(Capability::Net).is_err()); // onaylanmadı → kapı da reddeder
+        assert_eq!(kapi.sayi(), 1);
     }
 }

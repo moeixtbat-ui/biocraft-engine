@@ -46,6 +46,6 @@ paketleri **artifact** olarak yükler ve imzalı güncelleme bildirimini (`bildi
 
 `core-plugin/` dizini çekirdek eklentinin (BioCraft Studio) paket içine kopyalanan dosyalarını
 temsil eder. Paketleme betikleri bu dizini kurulum kökünün altına koyar; uygulama ilk açılışta
-gömülü eklentiyi **kurulu** olarak işaretler (kimlik `biocraft.studio.core`). Gerçek eklenti
+gömülü eklentiyi **kurulu** olarak işaretler (kimlik `biocraft.core.studio`, spec 0-CE.1). Gerçek eklenti
 ikilisi/`.bcext`'i derleme zamanında buraya yerleştirmek (çekirdek eklenti kendi deposu/CI'sından)
 bir entegrasyon adımıdır; manifest + yerleşim sözleşmesi burada sabittir.
