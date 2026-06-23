@@ -10,7 +10,8 @@ use biocraft_sdk::biocraft_types::ErrorReport;
 use super::canvas::GenomBolge;
 use super::lod::Konumlu;
 use crate::data_io::{
-    AnotasyonKaydi, AnotasyonOkuyucu, BellekButcesi, HizalamaKaydi, HizalamaOkuyucu,
+    AnotasyonKaydi, AnotasyonOkuyucu, BellekButcesi, HizalamaKaydi, HizalamaOkuyucu, VaryantKaydi,
+    VaryantOkuyucu,
 };
 
 /// DNA şeridi (read/özellik yönü).
@@ -204,6 +205,140 @@ impl OzellikParcasi {
     }
 }
 
+/// Varyant türü — REF/ALT uzunluk karşılaştırmasından çıkarılır (mismatch/indel vurgusu için).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaryantTuru {
+    /// Tek-nükleotit değişimi (SNV/SNP): REF ve tüm ALT'lar 1 baz.
+    Snv,
+    /// İnsersiyon (ekleme): bir ALT, REF'ten uzun.
+    Insersiyon,
+    /// Delesyon (silme): bir ALT, REF'ten kısa.
+    Delesyon,
+    /// Karmaşık/diğer (MNV, çok-alelli karışık).
+    Diger,
+}
+
+impl VaryantTuru {
+    /// REF + ALT'lardan türü belirler.
+    pub fn belirle(referans: &str, alternatifler: &[String]) -> VaryantTuru {
+        // Sembolik (<DEL> gibi) veya boş ALT → Diğer.
+        let gercek: Vec<&String> = alternatifler
+            .iter()
+            .filter(|a| !a.is_empty() && !a.starts_with('<') && *a != ".")
+            .collect();
+        if gercek.is_empty() {
+            return VaryantTuru::Diger;
+        }
+        let r = referans.len();
+        let hepsi_snv = r == 1 && gercek.iter().all(|a| a.len() == 1);
+        if hepsi_snv {
+            return VaryantTuru::Snv;
+        }
+        let herhangi_uzun = gercek.iter().any(|a| a.len() > r);
+        let herhangi_kisa = gercek.iter().any(|a| a.len() < r);
+        match (herhangi_uzun, herhangi_kisa) {
+            (true, false) => VaryantTuru::Insersiyon,
+            (false, true) => VaryantTuru::Delesyon,
+            _ => VaryantTuru::Diger,
+        }
+    }
+
+    /// Kısa etiket.
+    pub fn etiket(self) -> &'static str {
+        match self {
+            VaryantTuru::Snv => "SNV",
+            VaryantTuru::Insersiyon => "INS",
+            VaryantTuru::Delesyon => "DEL",
+            VaryantTuru::Diger => "VAR",
+        }
+    }
+}
+
+/// Varyant izinde tek bir varyant — çizim için sadeleştirilmiş (mismatch/ekleme/silme işareti).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaryantParcasi {
+    /// Kimlik (ID; rsID veya ".").
+    pub kimlik: String,
+    /// 1-tabanlı başlangıç (POS).
+    pub bas: u64,
+    /// 1-tabanlı bitiş (kapsayıcı; REF uzunluğunca — delesyon görünür alanı).
+    pub bit: u64,
+    /// Referans alel (REF).
+    pub referans: String,
+    /// Alternatif alel(ler) (ALT).
+    pub alternatifler: Vec<String>,
+    /// Varyant türü.
+    pub tur: VaryantTuru,
+}
+
+impl Konumlu for VaryantParcasi {
+    fn bas(&self) -> u64 {
+        self.bas
+    }
+    fn bit(&self) -> u64 {
+        self.bit
+    }
+}
+
+impl VaryantParcasi {
+    /// Bir `VaryantKaydi`'ndan parça üretir.
+    pub fn kayittan(k: &VaryantKaydi) -> VaryantParcasi {
+        let bas = k.konum as u64;
+        let bit = bas + (k.referans.len().max(1) as u64) - 1;
+        VaryantParcasi {
+            kimlik: k.kimlik.clone(),
+            bas,
+            bit,
+            referans: k.referans.clone(),
+            alternatifler: k.alternatifler.clone(),
+            tur: VaryantTuru::belirle(&k.referans, &k.alternatifler),
+        }
+    }
+
+    /// ALT alel(ler)inin metni (`,` ile birleşik).
+    pub fn alt_metni(&self) -> String {
+        if self.alternatifler.is_empty() {
+            ".".into()
+        } else {
+            self.alternatifler.join(",")
+        }
+    }
+
+    /// Üzerine gelince ipucu.
+    pub fn ipucu(&self) -> String {
+        let ad = if self.kimlik.is_empty() || self.kimlik == "." {
+            format!("{}", self.bas)
+        } else {
+            self.kimlik.clone()
+        };
+        format!(
+            "{} [{}] {}>{} @{}",
+            ad,
+            self.tur.etiket(),
+            self.referans,
+            self.alt_metni(),
+            self.bas
+        )
+    }
+
+    /// Seçim detayı.
+    pub fn detay(&self) -> String {
+        format!(
+            "Varyant: {}\nTür: {}\nKonum: {}-{}\nREF: {}\nALT: {}",
+            if self.kimlik.is_empty() {
+                "."
+            } else {
+                &self.kimlik
+            },
+            self.tur.etiket(),
+            self.bas,
+            self.bit,
+            self.referans,
+            self.alt_metni()
+        )
+    }
+}
+
 // ─── Out-of-core yükleyiciler (yalnız görünen pencere — MK-09) ──────────────────
 
 /// Görünen bölgedeki okumaları yükler.  `data_io` bölge sorgusu **indeksliyse** (BAM/CRAM) yalnız
@@ -227,6 +362,18 @@ pub fn gorunur_ozellikler(
 ) -> Result<Vec<OzellikParcasi>, ErrorReport> {
     let kayitlar = okuyucu.bolge_sorgu(&bolge.etiket(), butce, max_kayit)?;
     Ok(kayitlar.iter().map(OzellikParcasi::kayittan).collect())
+}
+
+/// Görünen bölgedeki varyantları yükler.  İndeksli (`.tbi/.csi`) VCF/BCF'te yalnız o bölgenin
+/// blokları okunur (out-of-core, MK-09); düz VCF lineer taranır.
+pub fn gorunur_varyantlar(
+    okuyucu: &mut VaryantOkuyucu,
+    bolge: &GenomBolge,
+    butce: &BellekButcesi,
+    max_kayit: usize,
+) -> Result<Vec<VaryantParcasi>, ErrorReport> {
+    let kayitlar = okuyucu.bolge_sorgu(&bolge.etiket(), butce, max_kayit)?;
+    Ok(kayitlar.iter().map(VaryantParcasi::kayittan).collect())
 }
 
 #[cfg(test)]
@@ -279,6 +426,54 @@ mod tests {
         assert_eq!(p.gorunen_ad(), "exon1");
         assert_eq!(p.serit, Serit::Ileri);
         assert!(p.ipucu().contains("exon1"));
+    }
+
+    #[test]
+    fn varyant_turu_ve_parca() {
+        // SNV: REF=A, ALT=G.
+        let snv = VaryantKaydi {
+            kromozom: "chr1".into(),
+            konum: 100,
+            kimlik: "rs1".into(),
+            referans: "A".into(),
+            alternatifler: vec!["G".into()],
+            kalite: Some(50.0),
+            filtreler: vec!["PASS".into()],
+            info: vec![],
+            ornek_sayisi: 1,
+            format_anahtarlari: vec!["GT".into()],
+        };
+        let p = VaryantParcasi::kayittan(&snv);
+        assert_eq!(p.tur, VaryantTuru::Snv);
+        assert_eq!((p.bas, p.bit), (100, 100));
+        assert!(p.ipucu().contains("rs1"));
+        assert!(p.detay().contains("SNV"));
+
+        // İnsersiyon: REF=A, ALT=ACGT.
+        let ins = VaryantKaydi {
+            referans: "A".into(),
+            alternatifler: vec!["ACGT".into()],
+            ..snv.clone()
+        };
+        assert_eq!(VaryantParcasi::kayittan(&ins).tur, VaryantTuru::Insersiyon);
+
+        // Delesyon: REF=ACGT, ALT=A → görünür alan 100-103.
+        let del = VaryantKaydi {
+            referans: "ACGT".into(),
+            alternatifler: vec!["A".into()],
+            ..snv.clone()
+        };
+        let dp = VaryantParcasi::kayittan(&del);
+        assert_eq!(dp.tur, VaryantTuru::Delesyon);
+        assert_eq!((dp.bas, dp.bit), (100, 103));
+
+        // Sembolik ALT → Diğer.
+        let sym = VaryantKaydi {
+            referans: "A".into(),
+            alternatifler: vec!["<DEL>".into()],
+            ..snv.clone()
+        };
+        assert_eq!(VaryantParcasi::kayittan(&sym).tur, VaryantTuru::Diger);
     }
 
     #[test]

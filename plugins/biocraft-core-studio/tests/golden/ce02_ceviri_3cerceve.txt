@@ -1,0 +1,6 @@
+ileri çerçeve0: MKFG*PG (ilk kodon 100-102)
+ileri çerçeve1: *NLGNP (ilk kodon 101-103)
+ileri çerçeve2: EIWVTR (ilk kodon 102-104)
+geri çerçeve0: PGLPKFH (ilk kodon 118-120)
+geri çerçeve1: PGYPNF (ilk kodon 117-119)
+geri çerçeve2: RVTQIS (ilk kodon 116-118)

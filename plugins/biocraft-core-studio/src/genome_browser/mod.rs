@@ -16,10 +16,16 @@
 //! * [`lod`] — LOD + culling + downsampling + kapsama binleme + read yığını (MK-04/MK-09).
 //! * [`veri`] — `data_io` okuyucu kayıtlarını çizim-parçalarına çevirir (out-of-core yükleme).
 //! * [`cizim`] — çizim listesi (display list) + kompozisyon + isabet testi (tooltip/seçim).
+//! * [`reference`] — referans dizi izi (renkli bazlar) + kodon/aminoasit çevirisi (3 çerçeve).
+//! * [`multisample`] — çoklu örnek (vaka/kontrol) senkron karşılaştırma (yan yana / üst üste).
+//! * [`measure`] — ölçüm aracı (bp mesafe) + pozisyon kopyalama + yer imleri (bookmark).
+//! * [`disa_aktar`] — görünümün anlık görüntüsünü SVG (yayın) / PNG (raster) olarak dışa aktarır.
 //!
-//! ## Bugün (1. kısım)
+//! ## Kapsam (Gün 36 + Gün 37)
 //! Tuval + cetvel + pan/zoom/"bölgeye git"/geri-ileri + hizalama/kapsama/anotasyon izleri +
-//! tooltip/seçim.  **Yarın (Gün 37):** referans dizi izi, ileri LOD, çoklu örnek senkron, ölçüm.
+//! tooltip/seçim + LOD (Gün 36); **referans dizi + çeviri, ileri LOD ("tam göster" + önemli
+//! read koruma), çoklu örnek senkron, ölçüm/yer imi, varyant (mismatch/indel) vurgusu, PNG/SVG
+//! dışa aktarma (Gün 37).**
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -28,19 +34,32 @@ use biocraft_sdk::{Aktivasyon, YetkiKapisi};
 
 pub mod canvas;
 pub mod cizim;
+pub mod disa_aktar;
 pub mod lod;
+pub mod measure;
+pub mod multisample;
 pub mod navigate;
+pub mod reference;
 pub mod ruler;
 pub mod tracks;
 pub mod veri;
 
 pub use canvas::{GenomBolge, Tuval};
 pub use cizim::{CizimListesi, CizimRengi, IsabetBolgesi, MetinHiza, Primitif};
+pub use disa_aktar::{png_olustur, svg_olustur, Palet};
 pub use lod::{LodSeviyesi, VARSAYILAN_OGE_BUTCESI};
+pub use measure::{bolge_metni, konum_metni, Olcum, Yerimi, YerimleriListesi};
+pub use multisample::{
+    katmanlar, ornek_izleri, ornek_rengi, KarsilastirmaModu, Ornek, OrnekKatman,
+};
 pub use navigate::{GenAdiCozucu, GezinmeGecmisi, TabloCozucu, ASGARI_PENCERE_BP};
+pub use reference::{
+    cevir, gorunur_referans_2bit, gorunur_referans_fasta, kodon_amino, referans_gerekli,
+    ters_tumleyen, CeviriDurumu, Kodon, ReferansDizi,
+};
 pub use ruler::{Cetvel, CetvelIsareti, Olcek};
 pub use tracks::{Iz, IzListesi, IzTuru, IzYer};
-pub use veri::{OkumaParcasi, OzellikParcasi, Serit};
+pub use veri::{OkumaParcasi, OzellikParcasi, Serit, VaryantParcasi, VaryantTuru};
 
 /// Bu alt-modülün karşılık geldiği ÇE paketi.
 pub const CE: &str = "ÇE-02";
@@ -48,12 +67,18 @@ pub const CE: &str = "ÇE-02";
 /// Bir izin bir karede çizilecek verisi (heterojen iz türleri için).
 #[derive(Debug, Clone, PartialEq)]
 pub enum IzVeri {
+    /// Referans dizi (renkli bazlar + opsiyonel çeviri).
+    Referans(ReferansDizi),
     /// Hizalama (read yığını).
     Hizalama(Vec<OkumaParcasi>),
     /// Kapsama (coverage) — okumalardan histogram binlenir.
     Kapsama(Vec<OkumaParcasi>),
+    /// Çoklu örnek overlay kapsaması (vaka/kontrol; tek lane, farklı renkler).
+    KapsamaCokOrnek(Vec<OrnekKatman>),
     /// Anotasyon (gen/ekson özellikleri).
     Anotasyon(Vec<OzellikParcasi>),
+    /// Varyant (mismatch/insersiyon/delesyon işaretleri).
+    Varyant(Vec<VaryantParcasi>),
     /// Veri yüklenmemiş/boş iz.
     Bos,
 }
@@ -78,12 +103,19 @@ pub struct GenomTarayici {
     gen_cozucu: TabloCozucu,
     kromozom_uzunluklari: HashMap<String, u64>,
     secili: Option<SeciliOge>,
+    yerimleri: YerimleriListesi,
+    olcum: Option<Olcum>,
+    isaretli_bolge: Option<GenomBolge>,
     /// Cetvel şeridinin yüksekliği (piksel).
     pub cetvel_yuksekligi: f32,
     /// İzler arası dikey boşluk (piksel).
     pub izler_arasi: f32,
     /// Cetvelde hedeflenen yaklaşık büyük işaret sayısı.
     pub hedef_isaret: u32,
+    /// Referans izinde kodon/aminoasit çevirisi görünüm durumu (varsayılan kapalı).
+    pub ceviri: CeviriDurumu,
+    /// "Tam göster": yoğun bölgede özet/seyreltmeyi atla (akıcılık pahasına hiçbir read gizlenmez).
+    pub tam_goster: bool,
 }
 
 impl GenomTarayici {
@@ -96,9 +128,14 @@ impl GenomTarayici {
             gen_cozucu: TabloCozucu::yeni(),
             kromozom_uzunluklari: HashMap::new(),
             secili: None,
+            yerimleri: YerimleriListesi::yeni(),
+            olcum: None,
+            isaretli_bolge: None,
             cetvel_yuksekligi: 24.0,
             izler_arasi: 4.0,
             hedef_isaret: 10,
+            ceviri: CeviriDurumu::default(),
+            tam_goster: false,
         }
     }
 
@@ -301,6 +338,99 @@ impl GenomTarayici {
         self.secili.as_ref()
     }
 
+    // ── Ölçüm + pozisyon kopyalama ─────────────────────────────────────────────
+
+    /// İki **ekran x'i** arasında ölçüm aracını kurar (kullanıcı iki noktaya tıklar).
+    pub fn olcum_ekrandan(&mut self, x1: f32, x2: f32) {
+        let a = self.tuval.ekran_to_genom(x1);
+        let b = self.tuval.ekran_to_genom(x2);
+        self.olcum = Some(Olcum::yeni(a, b));
+    }
+
+    /// İki **genom konumu** arasında ölçüm aracını kurar.
+    pub fn olcum_ayarla(&mut self, a: u64, b: u64) {
+        self.olcum = Some(Olcum::yeni(a, b));
+    }
+
+    /// Şu anki ölçüm (varsa).
+    pub fn olcum(&self) -> Option<Olcum> {
+        self.olcum
+    }
+
+    /// Ölçümü temizler.
+    pub fn olcum_temizle(&mut self) {
+        self.olcum = None;
+    }
+
+    /// Bir ekran x'indeki genom konumunu kopyalanabilir metne çevirir (ör. `chr1:12,345`).
+    pub fn konum_kopyala(&self, x: f32) -> String {
+        measure::konum_metni(&self.tuval)(x)
+    }
+
+    /// Şu anki görünen bölgeyi kopyalanabilir metne çevirir (ör. `chr1:1,000-2,000`).
+    pub fn bolge_kopyala(&self) -> String {
+        measure::bolge_metni(&self.tuval.bolge)
+    }
+
+    // ── Bölge işaretleme + yer imleri (bookmark; geri-alınabilir) ───────────────
+
+    /// Bir bölgeyi görünümde işaretler (vurgulanan bant).
+    pub fn bolge_isaretle(&mut self, bolge: GenomBolge) {
+        self.isaretli_bolge = Some(bolge);
+    }
+
+    /// Şu anki tüm görünen bölgeyi işaretler.
+    pub fn gorunumu_isaretle(&mut self) {
+        self.isaretli_bolge = Some(self.tuval.bolge.clone());
+    }
+
+    /// İşaretli bölge (varsa).
+    pub fn isaretli_bolge(&self) -> Option<&GenomBolge> {
+        self.isaretli_bolge.as_ref()
+    }
+
+    /// Bölge işaretini temizler.
+    pub fn isareti_temizle(&mut self) {
+        self.isaretli_bolge = None;
+    }
+
+    /// Şu anki görünen bölgeyi bir **yer imi** olarak kaydeder; eklenen indeksi döner.
+    pub fn yerimi_ekle(&mut self, ad: impl Into<String>) -> usize {
+        self.yerimleri
+            .ekle(Yerimi::yeni(ad, self.tuval.bolge.clone()))
+    }
+
+    /// Bir yer imini siler ve **geri döndürür** (geri-alma için UI tekrar ekleyebilir).
+    pub fn yerimi_sil(&mut self, indeks: usize) -> Option<Yerimi> {
+        self.yerimleri.sil(indeks)
+    }
+
+    /// Kayıtlı yer imleri (salt-okur).
+    pub fn yerimleri(&self) -> &YerimleriListesi {
+        &self.yerimleri
+    }
+
+    /// Bir yer imine gider (geçmişe işler); geçersiz indekste `false`.
+    pub fn yerimine_git(&mut self, indeks: usize) -> bool {
+        if let Some(y) = self.yerimleri.al(indeks) {
+            let b = y.bolge.clone();
+            self.uygula(b, true);
+            true
+        } else {
+            false
+        }
+    }
+
+    // ── Çoklu örnek (vaka/kontrol senkron karşılaştırma) ────────────────────────
+
+    /// Çoklu örnek izlerini ekler (yan yana ya da üst üste).  Tüm izler **aynı tuval** üzerinden
+    /// çizildiğinden gezinme otomatik senkrondur (tek koordinat modeli).
+    pub fn ornekleri_ekle(&mut self, ornekler: &[Ornek], mod_: KarsilastirmaModu) {
+        for iz in multisample::ornek_izleri(ornekler, mod_) {
+            self.izler.ekle(iz);
+        }
+    }
+
     // ── Türetilmiş çıktı ──────────────────────────────────────────────────────
 
     /// Şu anki görünümün cetveli.
@@ -323,26 +453,67 @@ impl GenomTarayici {
         lod::oge_butcesi(&self.tuval, VARSAYILAN_OGE_BUTCESI)
     }
 
-    /// Bir kareyi **derler**: cetvel + görünür izler (culling/LOD/downsampling) + seçim vurgusu →
-    /// render-bağımsız çizim listesi.  `veri` iz-kimliğinden o izin verisine eşler (görünen
-    /// pencereye ait; out-of-core yükleme çağıran tarafça yapılır).
+    /// Bir kareyi **derler**: işaretli bölge + cetvel + görünür izler (culling/LOD/downsampling) +
+    /// seçim vurgusu + ölçüm → render-bağımsız çizim listesi.  `veri` iz-kimliğinden o izin
+    /// verisine eşler (görünen pencereye ait; out-of-core yükleme çağıran tarafça yapılır).
     pub fn derle(&self, veri: &BTreeMap<String, IzVeri>) -> CizimListesi {
         let mut l = CizimListesi::yeni();
+
+        // İşaretli bölge bandı en altta (izler üstüne çizilir).
+        if let Some(b) = &self.isaretli_bolge {
+            cizim::bolge_isaretle_ciz(&mut l, &self.tuval, b, self.toplam_yukseklik());
+        }
+
         let c = self.cetvel();
         cizim::cetvel_ciz(&mut l, &c, self.tuval.genislik_px, self.cetvel_yuksekligi);
+
+        // Önemli read koruması için varyant konumları (haritadaki tüm varyant izlerinden).
+        let varyant_konumlari = self.varyant_konumlari(veri);
 
         let yerler = self.yerlesim();
         let butce = self.oge_butcesi();
         for yer in &yerler {
             match veri.get(&yer.kimlik) {
+                Some(IzVeri::Referans(referans)) => {
+                    let cerc = if self.ceviri.goster {
+                        Some(self.ceviri.cerceveler(referans))
+                    } else {
+                        None
+                    };
+                    cizim::referans_ciz(
+                        &mut l,
+                        yer,
+                        &self.tuval,
+                        referans,
+                        cerc.as_ref().map(|c| c.as_slice()),
+                    );
+                }
                 Some(IzVeri::Hizalama(okumalar)) => {
-                    cizim::hizalama_ciz(&mut l, yer, &self.tuval, okumalar, &yer.kimlik, butce)
+                    let korunan = onemli_okumalar(okumalar, &varyant_konumlari);
+                    cizim::hizalama_ciz(
+                        &mut l,
+                        yer,
+                        &self.tuval,
+                        okumalar,
+                        &yer.kimlik,
+                        cizim::HizalamaSecenek {
+                            oge_butcesi: butce,
+                            tam_goster: self.tam_goster,
+                            korunan: &korunan,
+                        },
+                    );
                 }
                 Some(IzVeri::Kapsama(okumalar)) => {
                     cizim::kapsama_ciz(&mut l, yer, &self.tuval, okumalar)
                 }
+                Some(IzVeri::KapsamaCokOrnek(katmanlar)) => {
+                    cizim::kapsama_overlay_ciz(&mut l, yer, &self.tuval, katmanlar)
+                }
                 Some(IzVeri::Anotasyon(ozellikler)) => {
                     cizim::anotasyon_ciz(&mut l, yer, &self.tuval, ozellikler, &yer.kimlik, butce)
+                }
+                Some(IzVeri::Varyant(varyantlar)) => {
+                    cizim::varyant_ciz(&mut l, yer, &self.tuval, varyantlar, &yer.kimlik, butce)
                 }
                 Some(IzVeri::Bos) | None => { /* veri yok: boş iz rehberi UI tarafında */ }
             }
@@ -351,12 +522,52 @@ impl GenomTarayici {
         if let Some(s) = &self.secili {
             cizim::secim_vurgula(&mut l, &s.ipucu);
         }
+
+        // Ölçüm aracı (varsa) cetvelin hemen altında.
+        if let Some(o) = &self.olcum {
+            cizim::olcum_ciz(&mut l, &self.tuval, o, self.cetvel_yuksekligi + 12.0);
+        }
         l
     }
+
+    /// Veri haritasındaki tüm varyant izlerinin görünen varyant konumlarını toplar (önemli read
+    /// korumasında kullanılır).
+    fn varyant_konumlari(&self, veri: &BTreeMap<String, IzVeri>) -> Vec<(u64, u64)> {
+        let mut konumlar = Vec::new();
+        for v in veri.values() {
+            if let IzVeri::Varyant(varyantlar) = v {
+                for vp in varyantlar {
+                    if self.tuval.bolge.ortusur(vp.bas, vp.bit) {
+                        konumlar.push((vp.bas, vp.bit));
+                    }
+                }
+            }
+        }
+        konumlar
+    }
+}
+
+/// Bir varyantın (`bas..=bit`) üstünden geçen okuma indekslerini döndürür (downsampling'de
+/// korunacak "önemli" read'ler — varyant kanıtı gizlenmez).
+fn onemli_okumalar(okumalar: &[OkumaParcasi], varyant_konumlari: &[(u64, u64)]) -> Vec<usize> {
+    if varyant_konumlari.is_empty() {
+        return Vec::new();
+    }
+    okumalar
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            varyant_konumlari
+                .iter()
+                .any(|&(vb, ve)| o.bas <= ve && o.bit >= vb)
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Alt-modülün UI/komut kayıtları — genom tarayıcı **GPU** ile çizildiğinden yalnızca `gpu`
 /// yetkisi verildiyse komutlar sunulur (en az yetki + dürüstlük: `db_search`/`data_io` deseni).
+/// Dışa aktarma (PNG/SVG dosyaya yazar) ayrıca `fs` ister.
 pub fn kayitlar(yetkiler: &YetkiKapisi) -> Aktivasyon {
     let mut akt = Aktivasyon::yeni();
     if yetkiler.var_mi(Capability::Gpu) {
@@ -367,7 +578,26 @@ pub fn kayitlar(yetkiler: &YetkiKapisi) -> Aktivasyon {
         .komut(
             "biocraft.core.studio.browser.git",
             "BioCraft Studio: Bölgeye Git… (chr:konum / gen adı)",
+        )
+        .komut(
+            "biocraft.core.studio.browser.referans",
+            "BioCraft Studio: Referans Dizi/Çeviri Göster",
+        )
+        .komut(
+            "biocraft.core.studio.browser.karsilastir",
+            "BioCraft Studio: Çoklu Örnek Karşılaştır (vaka/kontrol)",
+        )
+        .komut(
+            "biocraft.core.studio.browser.olcum",
+            "BioCraft Studio: Ölçüm Aracı (bp mesafe)",
         );
+        // Dışa aktarma diske yazar → fs gerekir (MK-13).
+        if yetkiler.var_mi(Capability::Fs) {
+            akt.komut(
+                "biocraft.core.studio.browser.disa_aktar",
+                "BioCraft Studio: Görünümü Dışa Aktar (PNG/SVG)",
+            );
+        }
     }
     akt
 }
@@ -389,8 +619,17 @@ mod tests {
     #[test]
     fn gpu_yoksa_komut_yok() {
         assert_eq!(kayitlar(&YetkiKapisi::bos()).ui_say(UiUzantiTuru::Komut), 0);
+        // Yalnız gpu → 5 görünüm komutu (dışa aktarma yok, fs gerekir).
         let gpu = kayitlar(&YetkiKapisi::yeni([Capability::Gpu]));
-        assert_eq!(gpu.ui_say(UiUzantiTuru::Komut), 2);
+        assert_eq!(gpu.ui_say(UiUzantiTuru::Komut), 5);
+        // gpu + fs → 6 (PNG/SVG dışa aktarma da sunulur).
+        let gpu_fs = kayitlar(&YetkiKapisi::yeni([Capability::Gpu, Capability::Fs]));
+        assert_eq!(gpu_fs.ui_say(UiUzantiTuru::Komut), 6);
+        // Yalnız fs → 0 (genom tarayıcı gpu ister).
+        assert_eq!(
+            kayitlar(&YetkiKapisi::yeni([Capability::Fs])).ui_say(UiUzantiTuru::Komut),
+            0
+        );
     }
 
     #[test]

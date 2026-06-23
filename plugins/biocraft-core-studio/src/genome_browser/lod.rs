@@ -97,6 +97,47 @@ pub fn seyrelt(indeksler: &[usize], butce: usize) -> Vec<usize> {
         .collect()
 }
 
+/// [`seyrelt`] gibi bütçeye seyreltir ama `korunan` kümesindeki indeksleri **her zaman tutar**
+/// (varyant/önemli read'ler gizlenmez; yalnız fazlalık seyreltilir).  Önce korunanlar alınır,
+/// kalan bütçe geri kalanlardan deterministik örneklenir.  Çıktı `indeksler`'deki sırayı korur.
+pub fn seyrelt_koruyarak(indeksler: &[usize], butce: usize, korunan: &[usize]) -> Vec<usize> {
+    if butce == 0 {
+        return Vec::new();
+    }
+    if indeksler.len() <= butce {
+        return indeksler.to_vec();
+    }
+    let korunan_kume: std::collections::HashSet<usize> = korunan.iter().copied().collect();
+
+    // Korunanları (görünür olanları) ve geri kalanları ayır.
+    let mut korunan_gorunur: Vec<usize> = Vec::new();
+    let mut diger: Vec<usize> = Vec::new();
+    for &i in indeksler {
+        if korunan_kume.contains(&i) {
+            korunan_gorunur.push(i);
+        } else {
+            diger.push(i);
+        }
+    }
+
+    // Korunanlar bütçeyi tek başına aşıyorsa onları da deterministik seyrelt (yine de hepsini
+    // değil; aşırı yoğun varyant bölgesinde bile akıcılık korunur — MK-04).
+    if korunan_gorunur.len() >= butce {
+        return seyrelt(&korunan_gorunur, butce);
+    }
+
+    let kalan_butce = butce - korunan_gorunur.len();
+    let secilen_diger: std::collections::HashSet<usize> =
+        seyrelt(&diger, kalan_butce).into_iter().collect();
+
+    // Orijinal sırayı koruyarak birleştir.
+    indeksler
+        .iter()
+        .copied()
+        .filter(|i| korunan_kume.contains(i) || secilen_diger.contains(i))
+        .collect()
+}
+
 /// Tuval genişliğine ölçeklenmiş öğe bütçesi: dar tuvalde daha az, geniş tuvalde daha çok öğe
 /// (piksel başına ~`taban_carpan` öğe), `taban` ile sınırlı.  Kare bütçesinin (MK-04) pratik karşılığı.
 pub fn oge_butcesi(tuval: &Tuval, taban: usize) -> usize {
@@ -230,6 +271,24 @@ mod tests {
         assert!(s[99] >= 900, "üst uçtan örnek korunmalı");
         // Bütçe üstündeyse aynen döner.
         assert_eq!(seyrelt(&idx[0..50], 100).len(), 50);
+    }
+
+    #[test]
+    fn seyrelt_koruyarak_onemlileri_tutar() {
+        let idx: Vec<usize> = (0..1000).collect();
+        // 7 ve 993 "önemli" (varyant) → her zaman görünür.
+        let korunan = [7usize, 993];
+        let s = seyrelt_koruyarak(&idx, 100, &korunan);
+        assert_eq!(s.len(), 100);
+        assert!(s.contains(&7), "önemli read korunmalı");
+        assert!(s.contains(&993), "önemli read korunmalı");
+        // Deterministik.
+        assert_eq!(s, seyrelt_koruyarak(&idx, 100, &korunan));
+        // Sıra korunur (artan).
+        assert!(s.windows(2).all(|w| w[0] < w[1]));
+
+        // Bütçe altındaysa aynen döner.
+        assert_eq!(seyrelt_koruyarak(&idx[0..50], 100, &korunan).len(), 50);
     }
 
     #[test]

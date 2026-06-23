@@ -1,16 +1,18 @@
-//! ÇE-02 (Gün 36) — **Genom Tarayıcı tuvali** uçtan uca demo (saf mantık; dosya/ağ yok).
+//! ÇE-02 (Gün 36–37) — **Genom Tarayıcı tuvali** uçtan uca demo (saf mantık; dosya/ağ yok).
 //!
 //! Çalıştır: `cargo run -p biocraft-core-studio --example genom_tarayici_demo`
 //!
 //! Tuvalin koordinat cetvelini, çok-iz yerleşimini, pan/zoom/"bölgeye git"/geri-ileri gezinmeyi,
 //! tooltip/seçimi ve yoğun bölgede LOD (özet) davranışını **terminalde ASCII** olarak gösterir.
-//! Gerçek uygulamada bu çizim listesi GPU ile (wgpu/egui) çizilir; burada sade görmek için ASCII.
+//! Gün 37 eklentileri: referans dizi + aminoasit çevirisi, çoklu örnek senkron, ölçüm/yer imi,
+//! varyant vurgusu ve **SVG/PNG** dışa aktarma.  Gerçek uygulamada bu çizim listesi GPU ile çizilir.
 
 use std::collections::BTreeMap;
 
 use biocraft_core_studio::genome_browser::{
-    CizimListesi, CizimRengi, GenomBolge, GenomTarayici, Iz, IzTuru, IzVeri, IzYer, OkumaParcasi,
-    OzellikParcasi, Primitif, Serit,
+    cevir, CizimListesi, CizimRengi, GenomBolge, GenomTarayici, Iz, IzTuru, IzVeri, IzYer,
+    KarsilastirmaModu, OkumaParcasi, Olcum, Ornek, OzellikParcasi, Palet, Primitif, ReferansDizi,
+    Serit, VaryantParcasi, VaryantTuru,
 };
 
 const SUTUN: usize = 78;
@@ -123,6 +125,85 @@ fn main() {
         t2.oge_butcesi(),
         yliste.isabetler.len(),
         ozet
+    );
+
+    // ── Gün 37 eklentileri ──
+    bolum("7) Referans dizi + aminoasit çevirisi (yakınlaşmada)");
+    let referans = ReferansDizi {
+        kromozom: "chr1".into(),
+        baslangic: 1,
+        bazlar: b"ATGGCCTTTGGGTAA".to_vec(),
+    };
+    let dizi_metni = String::from_utf8_lossy(&referans.bazlar);
+    println!("   Bazlar (chr1:1-15): {dizi_metni}");
+    for cerceve in 0u8..3 {
+        let aminolar: String = cevir(&referans, cerceve, Serit::Ileri)
+            .iter()
+            .map(|k| k.amino)
+            .collect();
+        println!("   İleri çerçeve {cerceve}: {aminolar}");
+    }
+    let geri: String = cevir(&referans, 0, Serit::Geri)
+        .iter()
+        .map(|k| k.amino)
+        .collect();
+    println!("   Geri çerçeve 0:   {geri}  (ters-tümleyen okunur)");
+
+    bolum("8) Çoklu örnek senkron karşılaştırma (vaka/kontrol)");
+    let mut t3 = GenomTarayici::yeni(1000.0, GenomBolge::yeni("chr1", 1, 1000).unwrap());
+    t3.ornekleri_ekle(
+        &[
+            Ornek::yeni("vaka", "Vaka"),
+            Ornek::yeni("kontrol", "Kontrol"),
+        ],
+        KarsilastirmaModu::YanYana,
+    );
+    println!(
+        "   {} iz (2 örnek × kapsama+okuma) — hepsi TEK koordinat modeline bağlı (senkron).",
+        t3.izler().sayi()
+    );
+    for iz in t3.izler().tumu() {
+        println!("      • {} ({})", iz.ad, iz.kimlik);
+    }
+
+    bolum("9) Ölçüm + pozisyon kopyalama + yer imi");
+    let mut t4 = GenomTarayici::yeni(1000.0, GenomBolge::yeni("chr1", 1000, 2000).unwrap());
+    t4.olcum_ayarla(1200, 1700);
+    let olcum: Olcum = t4.olcum().unwrap();
+    println!(
+        "   Ölçüm 1200↔1700: {} ({})",
+        olcum.etiket(),
+        olcum.mesafe_bp()
+    );
+    println!("   Pozisyon kopyala (x=0): {}", t4.konum_kopyala(0.0));
+    println!("   Bölge kopyala: {}", t4.bolge_kopyala());
+    let yi = t4.yerimi_ekle("İlgilenilen bölge");
+    println!(
+        "   Yer imi eklendi (#{yi}); toplam {} yer imi.",
+        t4.yerimleri().sayi()
+    );
+
+    bolum("10) Varyant vurgusu (mismatch / insersiyon / delesyon)");
+    for (refa, alt) in [("A", "G"), ("A", "ACGT"), ("ACGT", "A")] {
+        let v = VaryantParcasi {
+            kimlik: ".".into(),
+            bas: 100,
+            bit: 100 + refa.len() as u64 - 1,
+            referans: refa.into(),
+            alternatifler: vec![alt.into()],
+            tur: VaryantTuru::belirle(refa, &[alt.to_string()]),
+        };
+        println!("   {refa}>{alt} → {}", v.tur.etiket());
+    }
+
+    bolum("11) Dışa aktarma: SVG (yayın) + PNG (raster)");
+    let svg =
+        biocraft_core_studio::genome_browser::svg_olustur(&liste, 1000.0, 240.0, &Palet::yayin());
+    let png = biocraft_core_studio::genome_browser::png_olustur(&liste, 1000, 240, &Palet::yayin());
+    println!("   SVG: {} bayt (vektör, tam etiketli)", svg.len());
+    println!(
+        "   PNG: {} bayt (raster geometri, saf-Rust kodlayıcı)",
+        png.len()
     );
 
     println!("\n=== Demo bitti — tüm gezinme/çizim saf mantıkta, GPU'ya hazır çizim listesi. ===");

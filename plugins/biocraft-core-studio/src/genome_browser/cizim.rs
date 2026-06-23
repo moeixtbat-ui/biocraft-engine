@@ -9,16 +9,23 @@
 //! bölge özetlenir.  Her görünür öğe için bir [`IsabetBolgesi`] (ekran dikdörtgeni + ipucu) da
 //! üretilir → tooltip ve seçim (inspector) bunu kullanır.
 
-use super::canvas::Tuval;
+use std::collections::HashSet;
+
+use super::canvas::{GenomBolge, Tuval};
 use super::lod::{
-    gorunur_indeksler, kapsama_binle, lod_sec, seyrelt, yigin_yerlesimi, LodSeviyesi,
+    gorunur_indeksler, kapsama_binle, lod_sec, seyrelt, seyrelt_koruyarak, yigin_yerlesimi,
+    LodSeviyesi,
 };
+use super::measure::Olcum;
+use super::multisample::OrnekKatman;
+use super::reference::{Kodon, ReferansDizi};
 use super::ruler::Cetvel;
 use super::tracks::IzYer;
-use super::veri::{OkumaParcasi, OzellikParcasi, Serit};
+use super::veri::{OkumaParcasi, OzellikParcasi, Serit, VaryantParcasi, VaryantTuru};
 
-/// Anlamsal çizim rengi — motor tasarım jetonuna eşler (eklentide sabit RGB yok).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Anlamsal çizim rengi — motor tasarım jetonuna eşler (eklentide sabit RGB yok; yalnız
+/// dışa aktarılan dosya için [`super::disa_aktar::Palet`] somut RGB verir).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CizimRengi {
     /// Cetvel zemini.
     CetvelZemin,
@@ -48,6 +55,57 @@ pub enum CizimRengi {
     OzetYogunluk,
     /// Seçili öğe vurgusu.
     Secim,
+    // ── Gün 37: referans dizi + çeviri ──
+    /// Referans baz A.
+    BazA,
+    /// Referans baz C.
+    BazC,
+    /// Referans baz G.
+    BazG,
+    /// Referans baz T (RNA'da U).
+    BazT,
+    /// Referans baz N/belirsiz.
+    BazN,
+    /// Baz/aminoasit harfi (hücre üzerine).
+    BazMetin,
+    /// Aminoasit kodonu (çeviri).
+    AminoAsit,
+    /// Dur (stop) kodonu — vurgulu.
+    AminoAsitDur,
+    // ── Gün 37: varyant (mismatch/indel) ──
+    /// Tek-nükleotit varyantı (SNV).
+    VaryantSnv,
+    /// İnsersiyon (ekleme).
+    VaryantIns,
+    /// Delesyon (silme).
+    VaryantDel,
+    // ── Gün 37: ölçüm + işaretleme ──
+    /// Ölçüm aracı çizgisi.
+    OlcumCizgi,
+    /// Ölçüm aracı etiketi.
+    OlcumMetin,
+    /// İşaretlenmiş bölge bandı (yarı saydam).
+    IsaretliBolge,
+    // ── Gün 37: çoklu örnek karşılaştırma paleti ──
+    /// Örnek A (vaka).
+    OrnekA,
+    /// Örnek B (kontrol).
+    OrnekB,
+    /// Örnek C.
+    OrnekC,
+    /// Örnek D.
+    OrnekD,
+}
+
+/// Bir baz baytı için anlamsal renk (büyük/küçük harf büyük harfe indirilir; bilinmeyen → N).
+pub fn baz_rengi(b: u8) -> CizimRengi {
+    match b.to_ascii_uppercase() {
+        b'A' => CizimRengi::BazA,
+        b'C' => CizimRengi::BazC,
+        b'G' => CizimRengi::BazG,
+        b'T' | b'U' => CizimRengi::BazT,
+        _ => CizimRengi::BazN,
+    }
 }
 
 /// Metin yatay hizalaması.
@@ -275,31 +333,89 @@ pub fn kapsama_ciz(
 const READ_MAKS_YUKSEKLIK: f32 = 11.0;
 const READ_ASGARI_YUKSEKLIK: f32 = 2.0;
 
-/// Hizalama izini çizer: culling → (yoğunsa) özet / (değilse) yığınlanmış read kutuları +
-/// downsampling.  Görünür her read için isabet bölgesi (tooltip) üretilir.
+/// Hizalama çizim seçenekleri (LOD/downsampling) — argüman sayısını derli toplar.
+#[derive(Debug, Clone, Copy)]
+pub struct HizalamaSecenek<'a> {
+    /// Bir karede çizilecek azami öğe sayısı (kare bütçesi; MK-04).
+    pub oge_butcesi: usize,
+    /// "Tam göster": özet/seyreltmeyi atla (hiçbir read gizlenmez; yoğun bölgede yavaş).
+    pub tam_goster: bool,
+    /// Seyreltmede her zaman korunacak (varyant üstündeki **önemli**) read indeksleri.
+    pub korunan: &'a [usize],
+}
+
+impl<'a> HizalamaSecenek<'a> {
+    /// Yalnız bütçeyle (tam göster kapalı, korunan yok) seçenek.
+    pub fn butce(oge_butcesi: usize) -> Self {
+        Self {
+            oge_butcesi,
+            tam_goster: false,
+            korunan: &[],
+        }
+    }
+}
+
+/// Hizalama izini çizer: culling + LOD + downsampling (MK-04/MK-09).
+///
+/// * **Yoğun bölge** (Özet LOD): tek tek read yerine **yoğunluk özeti** çizilir (akıcılık) —
+///   ancak `secenek.korunan` (varyant üstündeki **önemli** read'ler) **yine de tek tek** çizilir
+///   (downsampling önemli read'i gizlemez; possible-error çözümü).
+/// * `secenek.tam_goster` = `true` ise özet/seyreltme tümüyle **atlanır** (yoğun bölgede
+///   yavaşlayabilir ama hiçbir read gizlenmez).
+/// * Aksi halde (orta yoğunluk) yığınlanmış read kutuları; bütçe aşılırsa önemli read'ler
+///   korunarak deterministik seyreltilir.
 pub fn hizalama_ciz(
     liste: &mut CizimListesi,
     tyer: &IzYer,
     tuval: &Tuval,
     okumalar: &[OkumaParcasi],
     iz_kimlik: &str,
-    oge_butcesi: usize,
+    secenek: HizalamaSecenek,
 ) {
+    let HizalamaSecenek {
+        oge_butcesi,
+        tam_goster,
+        korunan,
+    } = secenek;
     let gorunur = gorunur_indeksler(okumalar, &tuval.bolge);
     let lod = lod_sec(tuval.bp_per_piksel(), gorunur.len(), oge_butcesi);
 
-    if lod == LodSeviyesi::Ozet {
-        // Yoğun bölge: tek tek read yerine yoğunluk özeti (kapsama benzeri) — akıcılık korunur.
+    if lod == LodSeviyesi::Ozet && !tam_goster {
+        // Yoğunluk özeti (akıcılık korunur).
         let gorunur_okumalar: Vec<&OkumaParcasi> = gorunur.iter().map(|&i| &okumalar[i]).collect();
         ozet_yogunluk_ciz(liste, tyer, tuval, &gorunur_okumalar);
+        // Önemli (korunan) read'leri özetin üstüne tek tek çiz → varyant kanıtı gizlenmez.
+        let korunan_kume: HashSet<usize> = korunan.iter().copied().collect();
+        let onemli: Vec<&OkumaParcasi> = gorunur
+            .iter()
+            .filter(|i| korunan_kume.contains(i))
+            .map(|&i| &okumalar[i])
+            .collect();
+        if !onemli.is_empty() {
+            read_kutulari_ciz(liste, tyer, tuval, &onemli, iz_kimlik);
+        }
         return;
     }
 
-    // Bütçeyi aşarsa deterministik seyreltme (görsel dağılım korunur).
-    let secili = seyrelt(&gorunur, oge_butcesi);
+    // "Tam göster"de seyreltme yok; aksi halde önemli read'ler korunarak seyreltilir.
+    let secili = if tam_goster {
+        gorunur.clone()
+    } else {
+        seyrelt_koruyarak(&gorunur, oge_butcesi, korunan)
+    };
     let parcalar: Vec<&OkumaParcasi> = secili.iter().map(|&i| &okumalar[i]).collect();
+    read_kutulari_ciz(liste, tyer, tuval, &parcalar, iz_kimlik);
+}
 
-    let (yerler, satir_sayisi) = yigin_yerlesimi(&parcalar, 1);
+/// Read'leri çakışmayan satırlara (pileup) yerleştirip kutu + isabet (tooltip/seçim) olarak çizer.
+fn read_kutulari_ciz(
+    liste: &mut CizimListesi,
+    tyer: &IzYer,
+    tuval: &Tuval,
+    parcalar: &[&OkumaParcasi],
+    iz_kimlik: &str,
+) {
+    let (yerler, satir_sayisi) = yigin_yerlesimi(parcalar, 1);
     if satir_sayisi == 0 {
         return;
     }
@@ -467,9 +583,214 @@ fn ozet_ozellik_ciz(
     }
 }
 
+// ─── Referans dizi izi (bazlar + çeviri) — Gün 37 ───────────────────────────────
+
+/// Bir baz/aminoasit hücresinin üstüne harf yazmak için en küçük hücre genişliği (piksel).
+const HARF_ASGARI_GEN: f32 = 7.0;
+
+/// Referans dizi izini çizer: her baz **renkli hücre + harf** (yeterince yakınsa); `cerceveler`
+/// verildiyse altına 3 okuma çerçevesinin aminoasit çevirisi (her kodon hücre + harf).
+/// Çizim **yalnız görünen penceredeki** bazlara yapılır (out-of-core dizi zaten pencereye ait).
+pub fn referans_ciz(
+    liste: &mut CizimListesi,
+    tyer: &IzYer,
+    tuval: &Tuval,
+    referans: &ReferansDizi,
+    cerceveler: Option<&[Vec<Kodon>]>,
+) {
+    let cerc: &[Vec<Kodon>] = cerceveler.unwrap_or(&[]);
+    let satir_say = 1 + cerc.len();
+    let satir_h = (tyer.yukseklik / satir_say as f32).clamp(8.0, 16.0);
+
+    // Baz satırı.
+    for (i, &b) in referans.bazlar.iter().enumerate() {
+        let pos = referans.konum(i);
+        if !tuval.bolge.kapsar(pos) {
+            continue;
+        }
+        let (sol, sag) = tuval.aralik_ekran(pos, pos);
+        let gen = (sag - sol).max(1.0);
+        liste.dikdortgen(sol, tyer.y_ust, gen, (satir_h - 1.0).max(1.0), baz_rengi(b));
+        if gen >= HARF_ASGARI_GEN {
+            let harf = (b as char).to_ascii_uppercase().to_string();
+            liste.metin(
+                sol + gen / 2.0,
+                tyer.y_ust + 1.0,
+                harf,
+                CizimRengi::BazMetin,
+                (satir_h - 3.0).clamp(8.0, 12.0),
+                MetinHiza::Orta,
+            );
+        }
+    }
+
+    // Çeviri çerçeveleri (varsa).
+    for (f, kodonlar) in cerc.iter().enumerate() {
+        let y = tyer.y_ust + (f as f32 + 1.0) * satir_h;
+        if y + satir_h > tyer.y_alt() + 0.5 {
+            break; // ize sığmayan çerçeve çizilmez (dikey culling)
+        }
+        for k in kodonlar {
+            if !tuval.bolge.ortusur(k.bas, k.bit) {
+                continue;
+            }
+            let (sol, sag) = tuval.aralik_ekran(k.bas, k.bit);
+            let gen = (sag - sol).max(1.0);
+            let renk = if k.dur_mu() {
+                CizimRengi::AminoAsitDur
+            } else {
+                CizimRengi::AminoAsit
+            };
+            liste.dikdortgen(sol, y, gen, (satir_h - 1.0).max(1.0), renk);
+            if gen >= HARF_ASGARI_GEN {
+                liste.metin(
+                    sol + gen / 2.0,
+                    y + 1.0,
+                    k.amino.to_string(),
+                    CizimRengi::BazMetin,
+                    (satir_h - 3.0).clamp(8.0, 12.0),
+                    MetinHiza::Orta,
+                );
+            }
+        }
+    }
+}
+
+// ─── Varyant izi (mismatch / insersiyon / delesyon vurgusu) — Gün 37 ─────────────
+
+/// Bir varyant türünün anlamsal rengi.
+fn varyant_rengi(tur: VaryantTuru) -> CizimRengi {
+    match tur {
+        VaryantTuru::Snv => CizimRengi::VaryantSnv,
+        VaryantTuru::Insersiyon => CizimRengi::VaryantIns,
+        VaryantTuru::Delesyon => CizimRengi::VaryantDel,
+        VaryantTuru::Diger => CizimRengi::VaryantSnv,
+    }
+}
+
+/// Varyant izini çizer: her varyant türüne göre renkli işaret + isabet (tooltip/seçim).
+/// Çok yoğunsa (bütçe üstü) deterministik seyreltilir (akıcılık — MK-04).
+pub fn varyant_ciz(
+    liste: &mut CizimListesi,
+    tyer: &IzYer,
+    tuval: &Tuval,
+    varyantlar: &[VaryantParcasi],
+    iz_kimlik: &str,
+    oge_butcesi: usize,
+) {
+    let gorunur = gorunur_indeksler(varyantlar, &tuval.bolge);
+    let secili = seyrelt(&gorunur, oge_butcesi);
+    for &i in &secili {
+        let v = &varyantlar[i];
+        let (sol, sag) = tuval.aralik_ekran(v.bas, v.bit);
+        let gen = (sag - sol).max(2.0);
+        liste.dikdortgen(sol, tyer.y_ust, gen, tyer.yukseklik, varyant_rengi(v.tur));
+        liste.isabetler.push(IsabetBolgesi {
+            x: sol,
+            y: tyer.y_ust,
+            gen,
+            yuk: tyer.yukseklik,
+            iz_kimlik: iz_kimlik.to_string(),
+            oge_indeksi: i,
+            ipucu: v.ipucu(),
+            detay: v.detay(),
+        });
+    }
+}
+
+// ─── Çoklu örnek overlay kapsama (karşılaştırma) — Gün 37 ────────────────────────
+
+/// Birden çok örneğin kapsamasını **tek lane**'de farklı renklerle (overlay/üst üste) çizer.
+/// Normalizasyon **tüm örnekler arasında ortak** en yüksek derinliğe göredir → bar yükseklikleri
+/// örnekler arası **karşılaştırılabilir** (vaka/kontrol).  Okluzyonu önlemek için ince çizgi.
+pub fn kapsama_overlay_ciz(
+    liste: &mut CizimListesi,
+    tyer: &IzYer,
+    tuval: &Tuval,
+    katmanlar: &[OrnekKatman],
+) {
+    let kova_sayisi = (tuval.genislik_px as usize).clamp(1, 4000);
+    let binlenmis: Vec<(CizimRengi, Vec<u32>)> = katmanlar
+        .iter()
+        .map(|k| {
+            (
+                k.renk,
+                kapsama_binle(&k.okumalar, &tuval.bolge, kova_sayisi),
+            )
+        })
+        .collect();
+    let maks = binlenmis
+        .iter()
+        .flat_map(|(_, k)| k.iter().copied())
+        .max()
+        .unwrap_or(0);
+    if maks == 0 {
+        return;
+    }
+    let kova_gen = tuval.genislik_px / kova_sayisi as f32;
+    for (renk, kovalar) in &binlenmis {
+        for (k, &d) in kovalar.iter().enumerate() {
+            if d == 0 {
+                continue;
+            }
+            let h = (d as f32 / maks as f32) * tyer.yukseklik;
+            liste.dikdortgen(
+                k as f32 * kova_gen,
+                tyer.y_alt() - h,
+                kova_gen.max(1.0),
+                1.5,
+                *renk,
+            );
+        }
+    }
+}
+
+// ─── Ölçüm + bölge işaretleme — Gün 37 ──────────────────────────────────────────
+
+/// İki nokta arası ölçüm aracını çizer: yatay çizgi + uç çubukları + ortada bp etiketi (`y` ekran
+/// dikeyi).
+pub fn olcum_ciz(liste: &mut CizimListesi, tuval: &Tuval, olcum: &Olcum, y: f32) {
+    let (sol, _) = tuval.aralik_ekran(olcum.sol(), olcum.sol());
+    let (_, sag) = tuval.aralik_ekran(olcum.sag(), olcum.sag());
+    liste.cizgi(sol, y, sag, y, CizimRengi::OlcumCizgi, 1.5);
+    liste.cizgi(sol, y - 4.0, sol, y + 4.0, CizimRengi::OlcumCizgi, 1.5);
+    liste.cizgi(sag, y - 4.0, sag, y + 4.0, CizimRengi::OlcumCizgi, 1.5);
+    liste.metin(
+        (sol + sag) / 2.0,
+        y - 14.0,
+        olcum.etiket(),
+        CizimRengi::OlcumMetin,
+        11.0,
+        MetinHiza::Orta,
+    );
+}
+
+/// İşaretlenmiş bir bölgeyi tüm tuval boyunca yarı saydam bir bantla vurgular (bölge seçme/işaret).
+pub fn bolge_isaretle_ciz(
+    liste: &mut CizimListesi,
+    tuval: &Tuval,
+    bolge: &GenomBolge,
+    toplam_yukseklik: f32,
+) {
+    if bolge.kromozom != tuval.bolge.kromozom || !tuval.bolge.ortusur(bolge.baslangic, bolge.bitis)
+    {
+        return;
+    }
+    let bas = bolge.baslangic.max(tuval.bolge.baslangic);
+    let bit = bolge.bitis.min(tuval.bolge.bitis);
+    let (sol, sag) = tuval.aralik_ekran(bas, bit);
+    liste.dikdortgen(
+        sol,
+        0.0,
+        (sag - sol).max(1.0),
+        toplam_yukseklik,
+        CizimRengi::IsaretliBolge,
+    );
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::canvas::GenomBolge;
+    use super::super::reference::CeviriDurumu;
     use super::super::ruler::cetvel;
     use super::super::tracks::IzTuru;
     use super::*;
@@ -527,7 +848,14 @@ mod tests {
             okuma(800, 900, Serit::Ileri, 5), // düşük kalite
         ];
         let mut l = CizimListesi::yeni();
-        hizalama_ciz(&mut l, &yer, &t, &okumalar, "reads", 4000);
+        hizalama_ciz(
+            &mut l,
+            &yer,
+            &t,
+            &okumalar,
+            "reads",
+            HizalamaSecenek::butce(4000),
+        );
         // 3 okuma → 3 dikdörtgen + 3 isabet.
         assert_eq!(l.isabetler.len(), 3);
         assert!(l.primitifler.iter().any(|p| matches!(
@@ -561,7 +889,14 @@ mod tests {
             .map(|i| okuma(i, i + 50, Serit::Ileri, 60))
             .collect();
         let mut l = CizimListesi::yeni();
-        hizalama_ciz(&mut l, &yer, &t, &okumalar, "reads", 100); // bütçe 100 < 500
+        hizalama_ciz(
+            &mut l,
+            &yer,
+            &t,
+            &okumalar,
+            "reads",
+            HizalamaSecenek::butce(100),
+        ); // 100 < 500
         assert!(l.isabetler.is_empty(), "özet modda tek tek isabet yok");
         assert!(l.primitifler.iter().any(|p| matches!(
             p,
@@ -570,6 +905,48 @@ mod tests {
                 ..
             }
         )));
+
+        // "Tam göster": özet atlanır → tek tek read çizilir (isabet üretilir).
+        let mut l2 = CizimListesi::yeni();
+        hizalama_ciz(
+            &mut l2,
+            &yer,
+            &t,
+            &okumalar,
+            "reads",
+            HizalamaSecenek {
+                oge_butcesi: 100,
+                tam_goster: true,
+                korunan: &[],
+            },
+        );
+        assert!(!l2.isabetler.is_empty(), "tam göster: tek tek read çizilir");
+
+        // Önemli read koruması: yoğun (özet) bölgede bile korunan read tek tek çizilir.
+        // okumalar[41] = okuma(42, …) → ad "r42".
+        let mut l3 = CizimListesi::yeni();
+        hizalama_ciz(
+            &mut l3,
+            &yer,
+            &t,
+            &okumalar,
+            "reads",
+            HizalamaSecenek {
+                oge_butcesi: 100,
+                tam_goster: false,
+                korunan: &[41],
+            },
+        );
+        // Özet çubuğu + korunan read'in isabeti.
+        assert!(l3.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Dikdortgen {
+                renk: CizimRengi::OzetYogunluk,
+                ..
+            }
+        )));
+        assert_eq!(l3.isabetler.len(), 1, "yalnız korunan read tek tek görünür");
+        assert!(l3.isabetler[0].ipucu.contains("r42"));
     }
 
     #[test]
@@ -639,5 +1016,182 @@ mod tests {
             .primitifler
             .iter()
             .any(|p| matches!(p, Primitif::Metin { .. })));
+    }
+
+    fn varyant(bas: u64, refa: &str, alt: &str, tur: VaryantTuru) -> VaryantParcasi {
+        VaryantParcasi {
+            kimlik: format!("v{bas}"),
+            bas,
+            bit: bas + (refa.len().max(1) as u64) - 1,
+            referans: refa.into(),
+            alternatifler: vec![alt.into()],
+            tur,
+        }
+    }
+
+    #[test]
+    fn referans_bazlar_renkli_ve_harfli() {
+        // 10 bp pencere, 1000 px → baz ~100 px → harfler çizilir.
+        let t = tuval(1, 10);
+        let yer = tyer(IzTuru::Referans, 24.0, 16.0);
+        let referans = ReferansDizi {
+            kromozom: "chr1".into(),
+            baslangic: 1,
+            bazlar: b"ACGTACGTAC".to_vec(),
+        };
+        let mut l = CizimListesi::yeni();
+        referans_ciz(&mut l, &yer, &t, &referans, None);
+        // Her baz türü için renkli hücre + harf.
+        assert!(l.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Dikdortgen {
+                renk: CizimRengi::BazA,
+                ..
+            }
+        )));
+        assert!(l.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Metin {
+                renk: CizimRengi::BazMetin,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn referans_ceviri_cerceveleri_cizilir() {
+        let t = tuval(1, 12);
+        let yer = tyer(IzTuru::Referans, 24.0, 64.0); // baz + 3 çerçeve sığar
+        let referans = ReferansDizi {
+            kromozom: "chr1".into(),
+            baslangic: 1,
+            bazlar: b"ATGAAATTTTAA".to_vec(),
+        };
+        let c = CeviriDurumu {
+            goster: true,
+            serit: Serit::Ileri,
+        };
+        let cerc = c.cerceveler(&referans);
+        let mut l = CizimListesi::yeni();
+        referans_ciz(&mut l, &yer, &t, &referans, Some(&cerc));
+        // Dur kodonu (TAA) çerçeve 0'da → AminoAsitDur rengi var.
+        assert!(l.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Dikdortgen {
+                renk: CizimRengi::AminoAsitDur,
+                ..
+            }
+        )));
+        assert!(l.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Dikdortgen {
+                renk: CizimRengi::AminoAsit,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn varyant_turleri_renkli_ve_isabet() {
+        let t = tuval(1, 1000);
+        let yer = tyer(IzTuru::Varyant, 24.0, 20.0);
+        let varyantlar = vec![
+            varyant(100, "A", "G", VaryantTuru::Snv),
+            varyant(300, "A", "ACGT", VaryantTuru::Insersiyon),
+            varyant(500, "ACGT", "A", VaryantTuru::Delesyon),
+        ];
+        let mut l = CizimListesi::yeni();
+        varyant_ciz(&mut l, &yer, &t, &varyantlar, "varyantlar", 4000);
+        assert_eq!(l.isabetler.len(), 3);
+        for renk in [
+            CizimRengi::VaryantSnv,
+            CizimRengi::VaryantIns,
+            CizimRengi::VaryantDel,
+        ] {
+            assert!(
+                l.primitifler
+                    .iter()
+                    .any(|p| matches!(p, Primitif::Dikdortgen { renk: r, .. } if *r == renk)),
+                "varyant rengi yok: {renk:?}"
+            );
+        }
+        // İsabet → tooltip/seçim.
+        let (sol, _) = t.aralik_ekran(100, 100);
+        let bulundu = l.isabet_bul(sol + 0.5, 30.0).unwrap();
+        assert!(bulundu.ipucu.contains("SNV"));
+    }
+
+    #[test]
+    fn overlay_kapsama_ortak_normalizasyon() {
+        let t = tuval(1, 100);
+        let yer = tyer(IzTuru::Kapsama, 24.0, 60.0);
+        let katmanlar = vec![
+            OrnekKatman {
+                ad: "Vaka".into(),
+                renk: CizimRengi::OrnekA,
+                okumalar: vec![okuma(1, 50, Serit::Ileri, 60)],
+            },
+            OrnekKatman {
+                ad: "Kontrol".into(),
+                renk: CizimRengi::OrnekB,
+                okumalar: vec![okuma(30, 100, Serit::Ileri, 60)],
+            },
+        ];
+        let mut l = CizimListesi::yeni();
+        kapsama_overlay_ciz(&mut l, &yer, &t, &katmanlar);
+        // Her iki örneğin rengi de görünür.
+        for renk in [CizimRengi::OrnekA, CizimRengi::OrnekB] {
+            assert!(l
+                .primitifler
+                .iter()
+                .any(|p| matches!(p, Primitif::Dikdortgen { renk: r, .. } if *r == renk)));
+        }
+    }
+
+    #[test]
+    fn olcum_ve_isaretli_bolge() {
+        let t = tuval(1, 1000);
+        let mut l = CizimListesi::yeni();
+        olcum_ciz(&mut l, &t, &Olcum::yeni(100, 600), 50.0);
+        // Etiket (mesafe) + çizgiler.
+        assert!(l.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Metin {
+                renk: CizimRengi::OlcumMetin,
+                ..
+            }
+        )));
+        assert!(l.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Cizgi {
+                renk: CizimRengi::OlcumCizgi,
+                ..
+            }
+        )));
+
+        // İşaretli bölge bandı.
+        let mut l2 = CizimListesi::yeni();
+        bolge_isaretle_ciz(
+            &mut l2,
+            &t,
+            &GenomBolge::yeni("chr1", 200, 400).unwrap(),
+            300.0,
+        );
+        assert!(l2.primitifler.iter().any(|p| matches!(
+            p,
+            Primitif::Dikdortgen {
+                renk: CizimRengi::IsaretliBolge,
+                ..
+            }
+        )));
+        // Farklı kromozom → çizilmez.
+        let mut l3 = CizimListesi::yeni();
+        bolge_isaretle_ciz(
+            &mut l3,
+            &t,
+            &GenomBolge::yeni("chr2", 200, 400).unwrap(),
+            300.0,
+        );
+        assert!(l3.primitifler.is_empty());
     }
 }
