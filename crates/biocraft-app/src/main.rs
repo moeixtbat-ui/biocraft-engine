@@ -240,6 +240,16 @@ impl Uygulama {
             onboarding_json,
         ) = okunan;
 
+        // Küçültülmüş pencere Windows'ta inner_size 0×0 döndürür (winit).  **0 boyutu KAYDETME** —
+        // aksi halde sonraki açılışta pencere 0×0/görünmez olur (kendini besleyen hata).  Son
+        // geçerli boyutu koru.
+        let (genislik, yukseklik) = if genislik == 0 || yukseklik == 0 {
+            let mevcut = &self.yonetici.durum().pencere;
+            (mevcut.genislik, mevcut.yukseklik)
+        } else {
+            (genislik, yukseklik)
+        };
+
         // 2) Değişen bir şey varsa durumu güncelle (kirli işaretle → otomatik kayıt tetiklenir).
         let d = self.yonetici.durum();
         let degisti = d.tema != tema
@@ -500,6 +510,11 @@ struct DuzenlemeDemo {
 /// Demo kum-havuzu modelinin mantıksal depo yolu (çakışma izleme anahtarı).
 const DEMO_YOL: &str = "demo.bcproj";
 
+/// Pencere oluşturulurken uygulanacak **asgari** mantıksal genişlik/yükseklik (piksel).
+/// Kayıtlı durum bozuk/0 ise bile pencere bu boyutun altında (görünmez) açılmaz.
+const ASGARI_PENCERE_GEN: u32 = 640;
+const ASGARI_PENCERE_YUK: u32 = 480;
+
 impl DuzenlemeDemo {
     fn yeni() -> Self {
         let durum = UygulamaDurumu::default();
@@ -582,9 +597,12 @@ impl ApplicationHandler for Uygulama {
         let pencere = match event_loop.create_window(
             Window::default_attributes()
                 .with_title("BioCraft Engine — İP-04 Render Host")
+                // Kayıtlı boyutu **asgariye sıkıştır**: bozuk/0×0 kalmış bir durum (ör. önceki
+                // oturumda pencere küçültülmüşken kaydedilmiş) görünmez pencere oluşturmasın
+                // (görev çubuğunda simge var ama ekranda pencere yok belirtisinin önlemi).
                 .with_inner_size(LogicalSize::new(
-                    kayitli_pencere.genislik as f64,
-                    kayitli_pencere.yukseklik as f64,
+                    kayitli_pencere.genislik.max(ASGARI_PENCERE_GEN) as f64,
+                    kayitli_pencere.yukseklik.max(ASGARI_PENCERE_YUK) as f64,
                 )),
         ) {
             Ok(w) => Arc::new(w),
