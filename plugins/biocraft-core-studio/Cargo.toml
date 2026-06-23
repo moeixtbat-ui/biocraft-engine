@@ -13,6 +13,36 @@ description = "BioCraft Studio — çekirdek analiz/görüntüleme/veritabanı e
 [dependencies]
 biocraft-sdk = { path = "../../crates/biocraft-sdk" }
 
+# ─── ÇE-01: biyoinformatik format G/Ç (MK-32 BGZF-farkında, MK-09 out-of-core, MK-34 bütünlük) ──
+# `noodles` = standart, iyi test edilmiş, SAF-Rust (MIT) Rust biyoinformatik kütüphanesi.
+# BGZF blok-farkında okuma (MK-32), indeksli rastgele erişim (.fai/.bai/.csi/.crai),
+# out-of-core bölge sorgusu (yalnız sanal-ofsetle gereken bloklar okunur — MK-09).
+#
+# BİLİNÇLİ "yeni bağımlılık" istisnası (proje normalde dış bağımlılık eklemez):
+#   • ÇE-01 spec'i ("Teknoloji: noodles") ve bugünkü görev AÇIKÇA noodles ister.
+#   • BAM/CRAM/BGZF ayrıştırmasını elle yeniden yazmak doğruluk-kritik + fuzzing hedefidir →
+#     sorumsuzluk olur (CLAUDE.md §3: telifsiz kod kopyalama değil, açık-lisanslı crate kullan).
+#   • Bağımlılık EKLENTİ (bilim katmanı) içine girer; motor çekirdeğine (L0–L4) DEĞİL.
+#   • Saf-Rust: bgzf=flate2/miniz_oxide (C derleyici GEREKMEZ); cram harici sıkıştırma da saf-Rust.
+# `default-features = false` → `async` (tokio) ÇIKARILDI (MVP senkron G/Ç; ağır ağaç gelmez).
+noodles = { version = "0.111", default-features = false, features = [
+    "core",  # Region / Position (bölge sorgusu chr:start-end)
+    "bgzf",  # MK-32: BGZF blok-farkında okuma (ham bayt parçalama YASAK)
+    "csi",   # .csi / .tbi koordinat indeksi
+    "fasta", # FASTA + .fai indeksli rastgele erişim
+    "fastq", # FASTQ + kalite skorları
+    "sam",   # hizalama kayıt modeli (ortak) + düz-metin SAM
+    "bam",   # BAM + .bai
+    "cram",  # CRAM + .crai + referans çözümü
+] }
+
+# Bütünlük (BLAKE3 — MK-34) + provenance (kaynak/tarih/sürüm — İP-10) kaydı serileştirme.
+# Hepsi workspace'te ZATEN sabit (yeni sürüm/ağaç getirmez).
+blake3     = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
+
 # Geliştirme/test bağımlılıkları — sevkiyat artefaktının parçası DEĞİL (MK-17'yi ihlal etmez):
 #   • plugin-host: keşif/yükleme/izolasyon entegrasyon testi (tests/yukleme.rs)
 #   • toml: "yalnızca sdk'ya bağlı" yapısal testinde kendi Cargo.toml'unu ayrıştırmak için

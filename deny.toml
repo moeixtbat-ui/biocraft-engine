@@ -50,6 +50,17 @@ allow = [
 name = "epaint_default_fonts"
 allow = ["OFL-1.1", "LicenseRef-UFL-1.0"]
 
+# libbz2-rs-sys: noodles-cram'in CRAM **harici sıkıştırma** (bzip2 codec) için kullandığı
+# SAF-RUST yeniden uygulaması (ÇE-01).  Lisansı "bzip2-1.0.6" = bzip2/libbzip2 lisansı:
+# BSD/Zlib benzeri, yeniden dağıtıma + ticari kullanıma izin veren, çok yaygın ve güvenli bir
+# açık lisans (geçerli SPDX kimliği).  Global allow listesine KONMAZ; yalnızca bu crate için
+# muaf tutulur (en az ayrıcalık, epaint_default_fonts deseni gibi).
+# HUKUK NOTU (insan-eli): lisans politikası eklemesi → Hukuk-ve-Operasyon.md §1; bzip2 lisansı
+# permissive olduğundan düşük risk, yine de avukat teyidi kayda değer.
+[[licenses.exceptions]]
+name = "libbz2-rs-sys"
+allow = ["bzip2-1.0.6"]
+
 # ─── Yasaklı / tekrarlanan crate'ler ─────────────────────────────────────────
 [bans]
 multiple-versions = "warn"

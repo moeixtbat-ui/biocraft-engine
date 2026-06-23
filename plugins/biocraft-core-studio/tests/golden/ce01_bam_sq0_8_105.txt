@@ -1,0 +1,3 @@
+r1	sq0	10	flag=0	mapq=60	len=4
+r2	sq0	20	flag=0	mapq=60	len=5
+r3	sq0	100	flag=0	mapq=60	len=4
