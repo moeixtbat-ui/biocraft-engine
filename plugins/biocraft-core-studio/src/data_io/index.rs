@@ -41,8 +41,22 @@ pub fn indeks_durumu(yol: &Path, format: VeriFormati) -> IndeksDurumu {
         VeriFormati::Fasta => vec![fasta::fai_yolu(yol)],
         VeriFormati::Bam => vec![ek(yol, ".bai"), ek(yol, ".csi")],
         VeriFormati::Cram => vec![ek(yol, ".crai")],
-        // FASTQ/SAM rastgele erişim için indekslenmez (akışlı/lineer okunur).
-        VeriFormati::Fastq | VeriFormati::Sam => vec![],
+        // Varyant: tabix (.tbi) veya CSI (.csi) koordinat indeksi (BGZF gerektirir).
+        VeriFormati::Vcf => vec![ek(yol, ".tbi"), ek(yol, ".csi")],
+        VeriFormati::Bcf => vec![ek(yol, ".csi")],
+        // BigWig/BigBed/2bit kendi iç indekslerini taşır (yan dosya yok); diğerleri lineer.
+        VeriFormati::Fastq
+        | VeriFormati::Sam
+        | VeriFormati::Bed
+        | VeriFormati::Gff
+        | VeriFormati::Gtf
+        | VeriFormati::Wig
+        | VeriFormati::GenBank
+        | VeriFormati::TwoBit
+        | VeriFormati::BigWig
+        | VeriFormati::BigBed
+        | VeriFormati::Pdb
+        | VeriFormati::MmCif => vec![],
     };
     let mevcut = beklenen.iter().find(|p| p.exists()).cloned();
     IndeksDurumu {
@@ -86,10 +100,29 @@ pub fn indeks_olustur(yol: &Path, format: VeriFormati) -> Result<PathBuf, ErrorR
             "CRAM (.crai) indeksi bu sürümde otomatik üretilmiyor",
             "Referansla birlikte 'samtools index' ile .crai oluşturun",
         )),
-        VeriFormati::Sam | VeriFormati::Fastq => Err(ErrorReport::new(
-            "Bu format indekslenmez",
-            format!("{} rastgele erişim için indekslenmez", format.etiket()),
-            "Hizalama için SAM'i BAM'e dönüştürüp indeksleyin (samtools view -b | sort | index)",
+        VeriFormati::Vcf | VeriFormati::Bcf => Err(ErrorReport::new(
+            "Varyant indeksi otomatik üretilmiyor",
+            format!(
+                "{} için tabix/CSI indeksi bu sürümde otomatik üretilmiyor",
+                format.etiket()
+            ),
+            "Dosyayı BGZF ile sıkıştırıp (bgzip) 'tabix' ile indeksleyin; indekssiz de açılır (linear)",
+        )),
+        VeriFormati::Sam
+        | VeriFormati::Fastq
+        | VeriFormati::Bed
+        | VeriFormati::Gff
+        | VeriFormati::Gtf
+        | VeriFormati::Wig
+        | VeriFormati::GenBank
+        | VeriFormati::TwoBit
+        | VeriFormati::BigWig
+        | VeriFormati::BigBed
+        | VeriFormati::Pdb
+        | VeriFormati::MmCif => Err(ErrorReport::new(
+            "Bu format yan-indeks ile indekslenmez",
+            format!("{} rastgele erişim için ayrı bir yan-indeks kullanmaz", format.etiket()),
+            "Bu format akışlı/lineer veya iç-indeksli okunur; ayrı indeks gerekmez",
         )),
     }
 }
@@ -140,7 +173,7 @@ mod tests {
         let d = indeks_durumu(&s, VeriFormati::Sam);
         assert!(!d.indekslenebilir());
         let hata = indeks_olustur(&s, VeriFormati::Sam).unwrap_err();
-        assert_eq!(hata.ne_oldu, "Bu format indekslenmez");
+        assert_eq!(hata.ne_oldu, "Bu format yan-indeks ile indekslenmez");
         let _ = std::fs::remove_file(&s);
     }
 }

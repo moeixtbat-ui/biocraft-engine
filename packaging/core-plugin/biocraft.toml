@@ -18,7 +18,8 @@ abi          = "0.1"                  # ABI uyumu korunur (MK-14)
 cekirdek_min = "0.1.0"
 
 [yetkiler]
-# Çekirdek eklenti: fs (veri okuma) + gpu (genom/3B) + db (veritabanı) + ai (opsiyonel).
+# Çekirdek eklenti: fs (veri okuma) + gpu (genom/3B) + db (veritabanı) + ai (opsiyonel) + net (uzak).
 # Geçerli yetki adları: net/fs/gpu/ai/db (biocraft-sdk::yetenek_ayristir).  PHI sınırı çekirdekte (MK-42/43).
-# net (uzak erişim) ÇE-01/ÇE-09 ile geldiğinde eklenir.
-istenen = ["fs", "gpu", "db", "ai"]
+# net (uzak URL/S3 erişim) Gün 35 (ÇE-01 uzak erişim) ile eklendi; plugins/biocraft-core-studio
+# manifesti ile BİREBİR aynı (kullanıcı onayı ayrı; ilan ≠ otomatik kullanım).
+istenen = ["fs", "gpu", "db", "ai", "net"]

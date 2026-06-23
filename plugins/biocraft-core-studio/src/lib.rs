@@ -68,13 +68,14 @@ pub const MANIFEST: &str = include_str!("../biocraft.toml");
 
 /// Manifest'te **ilan edilen** yetkiler (`biocraft.toml [yetkiler].istenen` ile birebir).
 ///
-/// `net` bilinçli olarak YOK (bkz. manifest notu): bugünkü iskelet uzak erişim yapmaz, en az
-/// yetki ilkesi gereği ilan edilmedi → ilan edilmemiş `net` kullanımı reddedilir (MK-13).
+/// `net` Gün 35'te (ÇE-01 uzak erişim) eklendi.  İlan ≠ otomatik kullanım: kullanıcı kurulumda
+/// onaylamazsa (istenen ∩ onaylanan) net çalışmada yine reddedilir (MK-13).
 pub const ISTENEN_YETKILER: &[Capability] = &[
     Capability::Fs,
     Capability::Gpu,
     Capability::Db,
     Capability::Ai,
+    Capability::Net,
 ];
 
 /// Birinci-parti çekirdek eklenti için **varsayılan** yetki kapısı: ilan edilen tüm yetkiler
@@ -143,9 +144,10 @@ pub fn db_erisimi_dene(yetkiler: &YetkiKapisi) -> Result<(), ErrorReport> {
     yetkiler.iste(Capability::Db)
 }
 
-/// Yetki-kapılı bir **uzak ağ** işlemi denemesi (`net`).  Manifest `net` İLAN ETMEZ →
-/// bu çağrı **her zaman reddedilir** (ilan edilmemiş yetki kullanılamaz — MK-13).
-/// İleride ÇE-01 uzak erişim / ÇE-09 konektörleri geldiğinde manifest'e `net` eklenince açılır.
+/// Yetki-kapılı bir **uzak ağ** işlemi denemesi (`net`).  Manifest `net` İLAN EDER (Gün 35,
+/// ÇE-01 uzak erişim); bu yüzden net **onaylanmış** kapıda kabul, **onaylanmamış** kapıda (kullanıcı
+/// kurulumda net'i reddetmişse) standart hatayla reddedilir (MK-13).  PHI/hassas sınırı yine
+/// çekirdekte korunur (İP-10/MK-42/43); net bu sınırı aşmaz.
 pub fn uzak_erisim_dene(yetkiler: &YetkiKapisi) -> Result<(), ErrorReport> {
     yetkiler.iste(Capability::Net)
 }
@@ -186,17 +188,21 @@ mod tests {
     }
 
     #[test]
-    fn ilan_edilmeyen_net_reddedilir() {
-        // Manifest net İLAN ETMEZ → varsayılan kapıda net yok → reddedilir (MK-13).
+    fn net_onaylanmissa_kabul_onaylanmamissa_reddedilir() {
+        // Varsayılan (tümü ilan+onaylı) kapıda net artık KABUL (Gün 35).
         let kapi = yetki_kapisi_varsayilan();
-        assert!(uzak_erisim_dene(&kapi).is_err());
-        // İlan edilen db verilmiştir → kabul.
+        assert!(uzak_erisim_dene(&kapi).is_ok());
         assert!(db_erisimi_dene(&kapi).is_ok());
+
+        // Kullanıcı net'i onaylamamışsa (yalnız fs onaylı) → çalışmada reddedilir (MK-13).
+        let kisitli = YetkiKapisi::yeni([Capability::Fs]);
+        assert!(uzak_erisim_dene(&kisitli).is_err());
+        assert!(db_erisimi_dene(&kisitli).is_err());
     }
 
     #[test]
-    fn istenen_yetkiler_net_icermez() {
-        assert!(!ISTENEN_YETKILER.contains(&Capability::Net));
+    fn istenen_yetkiler_net_icerir() {
+        assert!(ISTENEN_YETKILER.contains(&Capability::Net));
         assert!(ISTENEN_YETKILER.contains(&Capability::Fs));
         assert!(ISTENEN_YETKILER.contains(&Capability::Db));
         assert!(ISTENEN_YETKILER.contains(&Capability::Gpu));

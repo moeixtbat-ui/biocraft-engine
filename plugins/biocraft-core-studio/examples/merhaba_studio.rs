@@ -58,15 +58,30 @@ fn main() {
     );
     println!("\n    {}", studio::merhaba());
 
-    // 4) Capability denetimi — ilan edilen db ✓, ilan edilmeyen net ✗ (MK-13).
+    // 4) Capability denetimi — ilan+onaylı db/net ✓; onaylanmamış kapıda net ✗ (MK-13).
     println!("\n[4] Capability denetimi:");
     match studio::db_erisimi_dene(&kapi) {
         Ok(()) => println!("    db  → izinli ✓ (ilan edildi + onaylandı)"),
         Err(e) => println!("    db  → reddedildi: {}", e.ne_oldu),
     }
     match studio::uzak_erisim_dene(&kapi) {
-        Ok(()) => println!("    net → izinli (beklenmiyordu!)"),
-        Err(e) => println!("    net → reddedildi ✓ ({} — ilan edilmedi)", e.ne_oldu),
+        Ok(()) => println!("    net → izinli ✓ (Gün 35'te ilan edildi + onaylandı)"),
+        Err(e) => println!("    net → reddedildi: {}", e.ne_oldu),
+    }
+    // Kullanıcı net'i onaylamazsa: ilan edilse de çalışmada reddedilir.
+    let onaylanan: Vec<_> = m
+        .istenen_yetkiler
+        .iter()
+        .copied()
+        .filter(|c| biocraft_plugin_host::biocraft_sdk::yetenek_metni(*c) != "net")
+        .collect();
+    let kisitli = YetkiKumesi::ver(&m.istenen_yetkiler, &onaylanan).kapi();
+    match studio::uzak_erisim_dene(&kisitli) {
+        Ok(()) => println!("    net (onaysız kapı) → izinli (beklenmiyordu!)"),
+        Err(e) => println!(
+            "    net (onaysız kapı) → reddedildi ✓ ({} — onaylanmadı)",
+            e.ne_oldu
+        ),
     }
 
     // 5) İzolasyon — kapat (kayıtları temizle) + yeniden yükle (birebir aynı).

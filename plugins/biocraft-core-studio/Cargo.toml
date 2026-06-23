@@ -28,13 +28,27 @@ biocraft-sdk = { path = "../../crates/biocraft-sdk" }
 noodles = { version = "0.111", default-features = false, features = [
     "core",  # Region / Position (bölge sorgusu chr:start-end)
     "bgzf",  # MK-32: BGZF blok-farkında okuma (ham bayt parçalama YASAK)
-    "csi",   # .csi / .tbi koordinat indeksi
+    "csi",   # .csi koordinat indeksi
+    "tabix", # .tbi koordinat indeksi (VCF/BED/GFF/GTF bölge sorgusu)
     "fasta", # FASTA + .fai indeksli rastgele erişim
     "fastq", # FASTQ + kalite skorları
     "sam",   # hizalama kayıt modeli (ortak) + düz-metin SAM
     "bam",   # BAM + .bai
     "cram",  # CRAM + .crai + referans çözümü
+    "vcf",   # VCF varyant (BGZF + .tbi/.csi indeksli bölge; INFO/FORMAT alanları)
+    "bcf",   # BCF ikili varyant (+ .csi)
+    "bed",   # BED anotasyon aralıkları
+    "gff",   # GFF3 anotasyon (gen/transkript/ekson özellikleri)
+    "gtf",   # GTF anotasyon
 ] }
+
+# ── Gün 35 ek formatlar — SAF-RUST, YENİ DIŞ BAĞIMLILIK EKLENMEDEN (bilinçli karar) ──
+# 2bit (UCSC ikili referans), GenBank (.gb/.gbk), PDB/mmCIF (yapı) ayrıştırıcıları noodles'ta
+# YOK ve bu projede elle, saf-Rust yazılır (metin/basit-ikili → güvenle yazılabilir; bigtools/
+# pdbtbx/gb-io gibi ek crate'ler EKLENMEDİ → projenin "yeni bağımlılık yok" çizgisi korunur).
+# BigWig/BigBed (B+ ağacı + R-ağacı + zoom + sıkıştırma → BAM gibi doğruluk-kritik karmaşık ikili)
+# bu sürümde HAND-WRITE edilmez; onu gerçekten kullanacak ÇE-02 (genom tarayıcı sinyal izi) ile
+# ele alınır → bigwig.rs net "yapılandırılmadı/ileride" hatası verir (sessiz/yanlış okuma YOK).
 
 # Bütünlük (BLAKE3 — MK-34) + provenance (kaynak/tarih/sürüm — İP-10) kaydı serileştirme.
 # Hepsi workspace'te ZATEN sabit (yeni sürüm/ağaç getirmez).

@@ -24,7 +24,8 @@ cekirdek_min = "0.1.0"                # uyumlu en düşük çekirdek sürümü
 #   gpu — genom tuvali + 3B render (ÇE-02/ÇE-07)
 #   db  — yerel SQLite/DuckDB sorgu + birleşik veritabanı arama (ÇE-09)
 #   ai  — opsiyonel: AI-hazır arayüz (yüzey yapılandırılmadıysa eklenti AI'sız çalışır)
-# NOT: 'net' (uzak URL/S3 + veritabanı indirme, spec 0-CE.2) HENÜZ ilan EDİLMEZ — gerçek uzak
-#      erişim ÇE-01/ÇE-09 ile gelince eklenir.  Bugünkü iskelet uzak G/Ç yapmadığı için en az
-#      yetki ilkesi gereği ilan edilmedi; ilan edilmemiş 'net' kullanımı host tarafından reddedilir.
-istenen = ["fs", "gpu", "db", "ai"]
+#   net — uzak URL/S3 bayt-aralığı erişim (ÇE-01 uzak veri) + veritabanı indirme (ÇE-09, 0-CE.2)
+# NOT: 'net' Gün 35 (ÇE-01 uzak erişim) ile ilan EDİLDİ.  İlan, otomatik kullanım demek değildir:
+#      kullanıcı kurulumda onaylamazsa (istenen ∩ onaylanan) net çalışmada yine reddedilir; PHI/
+#      hassas veri sınırı çekirdekte (İP-10/MK-42/43) korunur, eklenti net'le dahi bunu aşamaz.
+istenen = ["fs", "gpu", "db", "ai", "net"]

@@ -1,0 +1,2 @@
+chr1	100	rs1	A	T	qual=50.0	filt=PASS	info=DP,AF	ornek=2	fmt=GT:DP
+chr1	250	.	G	C,A	qual=60.0	filt=PASS	info=DP	ornek=2	fmt=GT:DP

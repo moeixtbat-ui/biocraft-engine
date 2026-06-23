@@ -3,7 +3,7 @@
 //! Kapsananlar (bugünün test listesi):
 //! * Çekirdek eklenti **keşfedilir/doğrulanır/yüklenir**; Activity Bar paneli + komut kaydı görünür.
 //! * Eklenti **yalnızca `biocraft-sdk`'ya** bağlıdır (motora doğrudan değil — MK-17).
-//! * **İlan edilmeyen** capability (`net`) isteği **reddedilir** (MK-13).
+//! * **Onaylanmayan** capability isteği (kullanıcı net'i reddetmiş) çalışmada **reddedilir** (MK-13).
 //! * Eklenti **kapatılıp yeniden yüklenir** (izolasyon): kayıtlar temizlenir, yeniden açılınca
 //!   birebir aynı kayıtlar oluşur (aktivasyon saf).
 
@@ -51,8 +51,8 @@ fn kesfedilir_dogrulanir_kimlik_ve_yetkiler_gorunur() {
     assert!(m.istenen_yetkiler.contains(&Capability::Db));
     assert!(m.istenen_yetkiler.contains(&Capability::Gpu));
     assert!(m.istenen_yetkiler.contains(&Capability::Ai));
-    // net İLAN EDİLMEMİŞ.
-    assert!(!m.istenen_yetkiler.contains(&Capability::Net));
+    // net Gün 35'te (ÇE-01 uzak erişim) İLAN EDİLDİ.
+    assert!(m.istenen_yetkiler.contains(&Capability::Net));
 }
 
 #[test]
@@ -110,11 +110,21 @@ fn kapatilip_yeniden_yuklenir_izolasyon() {
 }
 
 #[test]
-fn ilan_edilmeyen_net_calismada_reddedilir() {
-    let (_m, kapi) = kesfet_ve_yetki();
-    // İlan edilen db → kabul; ilan edilmeyen net → host reddi (standart hata şeması).
+fn onaylanmayan_net_calismada_reddedilir() {
+    let (m, kapi) = kesfet_ve_yetki();
+    // Tümü onaylı kapıda (varsayılan) net artık KABUL (Gün 35'te ilan edildi).
     assert!(studio::db_erisimi_dene(&kapi).is_ok());
-    let hata = studio::uzak_erisim_dene(&kapi).unwrap_err();
+    assert!(studio::uzak_erisim_dene(&kapi).is_ok());
+
+    // Kullanıcı net'i ONAYLAMAZSA (istenen ∩ onaylanan): ilan edilse de çalışmada reddedilir (MK-13).
+    let onaylanan: Vec<Capability> = m
+        .istenen_yetkiler
+        .iter()
+        .copied()
+        .filter(|c| *c != Capability::Net)
+        .collect();
+    let kisitli_kapi = YetkiKumesi::ver(&m.istenen_yetkiler, &onaylanan).kapi();
+    let hata = studio::uzak_erisim_dene(&kisitli_kapi).unwrap_err();
     assert_eq!(hata.ne_oldu, "Eklenti erişimi reddedildi");
     assert!(hata.neden.contains("net"));
 }

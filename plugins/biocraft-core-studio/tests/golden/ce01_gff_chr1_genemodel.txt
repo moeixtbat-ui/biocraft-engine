@@ -1,0 +1,4 @@
+chr1	1000	5000	gene	geneX	+
+chr1	1000	5000	mRNA	tx1	+
+chr1	1000	1200	exon	ex1	+
+chr1	4800	5000	exon	ex2	+
