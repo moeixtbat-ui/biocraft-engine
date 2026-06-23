@@ -1,0 +1,131 @@
+name: Release
+
+# İP-20 (MK-56): Sürüm etiketi (v*) push'unda Windows + Linux kurulum paketleri (artifact) üretir
+# + imzalı güncelleme bildirimi (Ed25519) çıkarır. Kod-imzalama sertifikası/anahtarı CI gizlisi
+# (secret) olarak gelir (insan-eli); yoksa TEST imzalı, DAĞITILMAZ artifact üretilir.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Sürüm (örn. 0.1.0)"
+        required: true
+        default: "0.1.0"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─── Linux: AppImage + imzalı güncelleme bildirimi ──────────────────────────
+  linux:
+    name: Linux (AppImage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sürümü belirle
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: AppImage araçları
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+
+      - name: AppImage paketle (motor + çekirdek eklenti, MK-19)
+        run: bash packaging/linux/build-appimage.sh "${{ steps.ver.outputs.version }}"
+
+      - name: İmzalı güncelleme bildirimi üret (Ed25519)
+        shell: bash
+        env:
+          UPDATE_KEY_HEX: ${{ secrets.BIOCRAFT_UPDATE_KEY_HEX }}
+        run: |
+          set -e
+          PKG="dist/BioCraftEngine-${{ steps.ver.outputs.version }}-x86_64.AppImage"
+          printf -- "- Bu sürümün değişiklikleri için changelog'a bakın.\n" > dist/notes.txt
+          ANAHTAR_ARG=""
+          if [ -n "${UPDATE_KEY_HEX:-}" ]; then
+            printf '%s' "$UPDATE_KEY_HEX" > dist/update_key.hex
+            ANAHTAR_ARG="--anahtar dist/update_key.hex"
+          fi
+          cargo run -p biocraft-data --example guncelleme_paketle -- \
+            "$PKG" "${{ steps.ver.outputs.version }}" \
+            --kanal kararli --changelog dist/notes.txt --cikti dist $ANAHTAR_ARG
+          rm -f dist/update_key.hex
+
+      - name: Artifact yükle (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: biocraft-linux-${{ steps.ver.outputs.version }}
+          path: |
+            dist/*.AppImage
+            dist/bildirim.json
+            dist/imza.hex
+            dist/acik_anahtar.hex
+
+  # ─── Windows: MSIX + imzalı güncelleme bildirimi ───────────────────────────
+  windows:
+    name: Windows (MSIX)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sürümü belirle
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: MSIX paketle (motor + çekirdek eklenti, MK-19)
+        shell: pwsh
+        run: |
+          # Sertifika gelene dek -SelfSign (yalnız test; DAĞITILMAZ). Gerçek sertifika CI gizlisi.
+          ./packaging/windows/build-msix.ps1 -Version "${{ steps.ver.outputs.version }}" -SelfSign
+
+      - name: İmzalı güncelleme bildirimi üret (Ed25519)
+        shell: bash
+        env:
+          UPDATE_KEY_HEX: ${{ secrets.BIOCRAFT_UPDATE_KEY_HEX }}
+        run: |
+          set -e
+          PKG="dist/BioCraftEngine-${{ steps.ver.outputs.version }}-x64.msix"
+          printf -- "- Bu sürümün değişiklikleri için changelog'a bakın.\n" > dist/notes.txt
+          ANAHTAR_ARG=""
+          if [ -n "${UPDATE_KEY_HEX:-}" ]; then
+            printf '%s' "$UPDATE_KEY_HEX" > dist/update_key.hex
+            ANAHTAR_ARG="--anahtar dist/update_key.hex"
+          fi
+          cargo run -p biocraft-data --example guncelleme_paketle -- \
+            "$PKG" "${{ steps.ver.outputs.version }}" \
+            --kanal kararli --changelog dist/notes.txt --cikti dist $ANAHTAR_ARG
+          rm -f dist/update_key.hex
+
+      - name: Artifact yükle (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: biocraft-windows-${{ steps.ver.outputs.version }}
+          path: |
+            dist/*.msix
+            dist/bildirim.json
+            dist/imza.hex
+            dist/acik_anahtar.hex

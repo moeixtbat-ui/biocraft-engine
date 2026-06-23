@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BioCraft Engine — Windows MSIX paket manifesti (İP-20, MK-56).
+  Publisher (CN=...) kod-imzalama sertifikasının özne adıyla BİREBİR eşleşmelidir; sertifika
+  insan-eli iştir (Hukuk-ve-Operasyon.md). Version 4 haneli (a.b.c.0) olmalı — son hane build.
+  Çekirdek eklenti (MK-19) pakete dahildir (VFS/core-plugin), ilk açılışta kuruludur.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="BioCraftEngine.BioCraftEngine"
+    Publisher="CN=BioCraft Engine, O=BioCraft Engine, C=TR"
+    Version="0.1.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>BioCraft Engine</DisplayName>
+    <PublisherDisplayName>BioCraft Engine</PublisherDisplayName>
+    <Description>Genom/biyoinformatik analiz ve görselleştirme motoru — çekirdek eklenti BioCraft Studio dahil.</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.22631.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="tr-TR" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="BioCraftEngine" Executable="biocraft.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="BioCraft Engine"
+        Description="Genom/biyoinformatik analiz ve görselleştirme motoru."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Masaüstü uygulaması: tam güven (FullTrust). PHI/veri sınırı çekirdekte korunur (MK-42/43);
+         ağ yeteneği yalnız imzalı auto-update + kullanıcı onaylı dış kaynak içindir. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

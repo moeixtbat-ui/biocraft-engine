@@ -1,0 +1,21 @@
+# Çekirdek eklenti — BioCraft Studio — pakete GÖMÜLÜ manifest (İP-20, MK-19).
+#
+# Bu manifest, motorla AYNI kuruluma gömülen çekirdek eklentinin yerleşim sözleşmesidir.
+# App ilk açılışta bu kimliği "kurulu" işaretler (crates/biocraft-app/src/update/mod.rs::
+# cekirdek_eklenti()) → "eklenti yok" ekranı asla görünmez. Çekirdek eklenti motordan BAĞIMSIZ
+# sürümlenir (MK-19); gerçek ikilisi/.bcext'i çekirdek eklenti deposunun CI'sından buraya kopyalanır.
+
+[eklenti]
+kimlik = "biocraft.studio.core"      # sihirbaz/onboarding/pazar ile AYNI kimlik
+ad     = "BioCraft Studio"
+surum  = "0.1.0"                      # motordan bağımsız (MK-19)
+katman = "native"                     # çekirdek eklenti native (analiz/görüntüleme + veritabanı)
+giris  = "biocraft-studio"            # yerleşim göreli giriş
+
+[uyumluluk]
+abi          = "0.1"                  # ABI uyumu korunur (MK-14)
+cekirdek_min = "0.1.0"
+
+[yetkiler]
+# Çekirdek eklenti analiz/görüntüleme + veritabanı erişimi ister; PHI sınırı çekirdekte (MK-42/43).
+istenen = ["fs", "veritabani"]

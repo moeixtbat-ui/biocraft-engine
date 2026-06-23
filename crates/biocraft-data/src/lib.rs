@@ -26,6 +26,7 @@ pub mod migrate;
 pub mod privacy;
 pub mod project;
 pub mod security;
+pub mod update;
 
 // Sık kullanılan proje formatı API'sini kök seviyede yeniden dışa aktar (kolay erişim).
 pub use project::{
@@ -44,4 +45,10 @@ pub use privacy::{
 pub use migrate::{
     ac_ve_goc, degerlendir, eklenti_veri_uyumu, goc_plani, EklentiVeriUyumu, Goc, GocKayit,
     GocPlani, GocSonucu, OnayPolitikasi, SaltOkunurProje, SurumDurumu,
+};
+
+// Sık kullanılan güncelleme motoru API'sini kök seviyede yeniden dışa aktar (İP-20, MK-56).
+pub use update::{
+    daha_yeni_mi, guncellemeyi_uygula, surum_yonu, AtomikKurulum, DeltaYama, GenisBildirim,
+    GuncellemePaketi, GuncellemeRaporu, SurumKanali, SurumYon,
 };

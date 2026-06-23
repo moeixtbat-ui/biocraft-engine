@@ -1,0 +1,9 @@
+#!/bin/sh
+# BioCraft Engine — AppImage giriş noktası (İP-20, MK-56).
+# Gömülü çekirdek eklenti (MK-19) AppDir/usr/lib/biocraft/core-plugin/ altındadır; ilk açılışta
+# kuruludur ("eklenti yok" ekranı görünmez). Veri/ayar kullanıcı ev dizininde (XDG) tutulur.
+HERE="$(dirname "$(readlink -f "${0}")")"
+export PATH="${HERE}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+export BIOCRAFT_CORE_PLUGIN_DIR="${HERE}/usr/lib/biocraft/core-plugin"
+exec "${HERE}/usr/bin/biocraft" "$@"

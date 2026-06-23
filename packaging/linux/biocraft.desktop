@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=BioCraft Engine
+GenericName=Genom/Biyoinformatik Motoru
+Comment=Genom analizi ve görselleştirme — çekirdek eklenti BioCraft Studio dahil
+Exec=biocraft
+Icon=biocraft
+Terminal=false
+Categories=Science;Biology;Education;Graphics;
+Keywords=genom;bioinformatics;biyoinformatik;dna;variant;
+StartupNotify=true

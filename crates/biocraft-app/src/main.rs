@@ -58,6 +58,13 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
+// İP-20: app-tarafı auto-updater + gömülü çekirdek eklenti (MK-56, MK-19).
+mod update;
+use update::{
+    cekirdek_eklenti, DemoKaynak, GuncellemeDenetleyici, GuncellemeDurum, GuncellemeEylem,
+    KaynakYok,
+};
+
 fn main() {
     // MK-08: Aşamalı başlatma. Kendi katmanlarımız "info"; wgpu/naga arka plan gürültüsü
     // (Vulkan yükleyici mesajları vb.) "warn/error" ile susturulur (RUST_LOG ile değişir).
@@ -431,6 +438,10 @@ struct Sahne {
     pazar: BioCraftPazar,
     /// Pazar ekranı merkezde açık mı? (editör/node/galeri/ayarlar ile dışlamalı.)
     pazar_acik: bool,
+    // ── İP-20: Auto-updater (paketleme/güncelleme; MK-56) ──
+    /// İmzalı + delta + atomik + geri-alınabilir güncelleme orkestrasyonu (arka plan kontrol +
+    /// "şimdi/sonra" onay).  MVP'de kaynak yapılandırılmamıştır; `--update-demo` ile yüzey canlı.
+    guncelleme: GuncellemeDenetleyici,
 }
 
 /// Ayrılmış (detach) bir panelin ayrı OS penceresi — kendi GPU yüzeyi + egui bağlamı (İP-03).
@@ -758,10 +769,24 @@ impl ApplicationHandler for Uygulama {
         }
 
         // İP-18: Bilim Pazarı — çevrimdışı önbellekle (küratörlü) başlat; ilk açılışta taze çekilir.
-        // Çekirdek eklenti (BioCraft Studio) varsayılan kurulu gelir → mağazada "Kurulu" görünür.
+        // İP-20/MK-19: Çekirdek eklenti (BioCraft Studio) motorla AYNI pakete **gömülü** gelir →
+        // ilk açılışta kurulu; "eklenti yok" ekranı asla görünmez; bağımsız sürümlenir.
+        let cekirdek = cekirdek_eklenti();
         let mut pazar =
             BioCraftPazar::onbellek_ile(biocraft_ui::biocraft_net::kuratorlu_veri(simdi()));
-        pazar.kurulu_tohumla("biocraft.studio.core", "0.1.0");
+        pazar.kurulu_tohumla(cekirdek.kimlik, cekirdek.surum);
+
+        // İP-20: auto-updater'ı kur (varsayılan kanal: Kararlı).  `--update-demo` ile sahte kaynak,
+        // aksi hâlde kaynak yapılandırılmadı (çevrimdışı/güvenli) → güncelleme sunulmaz.
+        let mut guncelleme =
+            GuncellemeDenetleyici::yeni(biocraft_data::update::SurumKanali::Kararli);
+        log::info!("{}", update::updater_ozeti());
+        if std::env::args().any(|a| a == "--update-demo") {
+            log::info!("--update-demo: sahte güncelleme kaynağı; onay yüzeyi canlı gösterilecek.");
+            guncelleme.kontrol_baslat(Box::new(DemoKaynak));
+        } else {
+            guncelleme.kontrol_baslat(Box::new(KaynakYok));
+        }
 
         self.durum = Some(Sahne {
             pencere,
@@ -819,6 +844,7 @@ impl ApplicationHandler for Uygulama {
             onboarding,
             pazar,
             pazar_acik: false,
+            guncelleme,
         });
     }
 
@@ -1029,6 +1055,8 @@ impl Sahne {
         let mut onboarding_eylem: Option<OnboardingEylem> = None;
         // İP-18: Bilim Pazarı'nın (dış bağlantı/rapor/çevrimdışı kurulum/yenile) eylemi — closure sonrası.
         let mut pazar_eylem: Option<PazarEylem> = None;
+        // İP-20: auto-updater onay ekranının ("şimdi/sonra"/notlar) eylemi — closure sonrası işlenir.
+        let mut guncelleme_eylem: Option<GuncellemeEylem> = None;
         let ayarlar_acik = self.ayarlar_acik;
         let pazar_acik = self.pazar_acik;
         // İP-12 (3. derece): durum göstergeleri ayardan açılır/kapanır.  Veriler closure öncesi
@@ -1045,6 +1073,18 @@ impl Sahne {
         self.ai.token_goster = g_tok || self.ai_demo;
         self.ai.maliyet_goster = g_maliyet || self.ai_demo;
         self.ai.yokla();
+        // İP-20: auto-updater'ın arka plan kontrol sonucunu **bloklamadan** yokla (MK-07).  Sonuç
+        // gelene dek bir sonraki kareyi iste (birkaç ms; busy-loop yok — yalnız Kontrol sürerken).
+        if self.guncelleme.yokla() {
+            // Kontrol hatası olduysa sessizce logla (auto-update kullanıcıyı rahatsız etmez).
+            if let Some(h) = self.guncelleme.durum().hata() {
+                log::warn!("Güncelleme kontrolü başarısız (sessiz): {h}");
+            }
+            self.pencere.request_redraw();
+        }
+        if matches!(self.guncelleme.durum(), GuncellemeDurum::Kontrol) {
+            self.pencere.request_redraw();
+        }
         let ai_token = self.ai.durum_token();
         let ai_mesgul = self.ai.mesgul();
         let gostergeli = g_fps || g_ram || g_sic || g_tok;
@@ -1255,6 +1295,9 @@ impl Sahne {
             }
             // İP-17: onboarding örtüsü (rol diyaloğu → tur → şablon galerisi → yardım) — en üstte.
             onboarding_eylem = self.onboarding.overlay_ciz(c, dil, &tok);
+            // İP-20: güncelleme onay ekranı ("güncelleme hazır" + changelog + şimdi/sonra) — sağ-alt,
+            // aktif işi bölmez (küçük modal; uygulama yalnız onayla yapılır).
+            guncelleme_eylem = self.guncelleme.overlay_ciz(c, dil, &tok);
         });
         // Ölçülen panel genişliklerini sakla (kalıcı duruma yazılır) + bandı gizle.
         self.yan_panel_genislik = olculen_yan_w;
@@ -1324,6 +1367,37 @@ impl Sahne {
         // İP-18: Bilim Pazarı'nın ürettiği eylemi işle (dış bağlantı onayı / rapor / çevrimdışı kurulum / yenile).
         if let Some(eylem) = pazar_eylem {
             self.pazar_eylem_uygula(eylem);
+        }
+        // İP-20: güncelleme onay ekranının eylemini işle (şimdi uygula / sonra / tüm notlar).
+        if let Some(eylem) = guncelleme_eylem {
+            let tr = matches!(self.gallery.dil, Dil::Tr);
+            match eylem {
+                // "Şimdi yeniden başlat": gerçek dağıtımda imzalı paket indirilip atomik uygulanır +
+                // süreç yeniden başlar (engine: biocraft_data::update::guncellemeyi_uygula).  MVP'de
+                // gerçek paket/yeniden-başlatma altyapısı yok → şeffaf not (sahte uygulama yapılmaz).
+                GuncellemeEylem::SimdiUygula => {
+                    let (s, imza_bayt) = self
+                        .guncelleme
+                        .secili_aday()
+                        .map(|a| (a.bildirim.surum().to_string(), a.imza.len()))
+                        .unwrap_or_default();
+                    self.alt_panel.konsol_yaz(if tr {
+                        format!("Güncelleme {s}: {imza_bayt}-baytlık imza + BLAKE3 doğrulanır, atomik uygulanır + yeniden başlatılır (gerçek indirme/dağıtım altyapısı bağlanınca).")
+                    } else {
+                        format!("Update {s}: {imza_bayt}-byte signature + BLAKE3 verified, atomically applied and restarted (once real download/distribution is wired).")
+                    });
+                    self.guncelleme.ertele();
+                }
+                GuncellemeEylem::Sonra => {} // overlay zaten ertele() çağırdı.
+                GuncellemeEylem::TumNotlar => {
+                    self.alt_panel.konsol_yaz(if tr {
+                        "Tüm sürüm notları: https://biocraftengine.com/changelog (açmadan önce onay)."
+                    } else {
+                        "All release notes: https://biocraftengine.com/changelog (confirm before opening)."
+                    });
+                }
+            }
+            self.pencere.request_redraw();
         }
         // Pazar içeriği yükleniyorsa (asenkron) yeniden çiz iste → iskelet→içerik geçişi görünür.
         if self.pazar_acik && self.pazar.baslatildi() {

@@ -1,0 +1,39 @@
+# BioCraft Engine — Flatpak manifesti (İP-20, MK-56).
+# flatpak-builder ile derlenir. Çekirdek eklenti (MK-19) /app/lib/biocraft/core-plugin'e gömülür.
+#
+#   flatpak-builder --force-clean build-dir packaging/linux/flatpak/com.biocraftengine.BioCraftEngine.yml
+#
+# Sandbox izinleri bilinçli DAR tutulur: PHI/veri sınırı çekirdekte korunur (MK-42/43); ağ yalnız
+# imzalı auto-update + kullanıcı onaylı dış kaynak içindir.
+app-id: com.biocraftengine.BioCraftEngine
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: biocraft
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri              # wgpu/GPU render (MK-01/MK-04)
+  - --share=ipc
+  - --share=network           # yalnız imzalı auto-update + onaylı dış kaynak
+  - --filesystem=home         # kullanıcı projeleri (veri sınırı çekirdekte zorlanır)
+
+modules:
+  - name: biocraft-engine
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/biocraft-engine/cargo
+    build-commands:
+      - cargo build --release --locked -p biocraft-app --offline
+      - install -Dm755 target/release/biocraft /app/bin/biocraft
+      - install -Dm644 packaging/linux/biocraft.desktop /app/share/applications/com.biocraftengine.BioCraftEngine.desktop
+      # Çekirdek eklenti gömme (MK-19) — varsa kopyala.
+      - 'if [ -d packaging/core-plugin ]; then mkdir -p /app/lib/biocraft && cp -r packaging/core-plugin /app/lib/biocraft/core-plugin; fi'
+    sources:
+      - type: dir
+        path: ../../..
