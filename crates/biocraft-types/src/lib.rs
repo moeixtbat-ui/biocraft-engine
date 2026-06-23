@@ -8,6 +8,21 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// ─── İP-21: gözlemlenebilirlik / kalite altyapısı modülleri (MK-57, MK-58) ────
+//
+// Bu modüller L0'dadır → her üst katman aynı yapılandırılmış log kaydını, iz bağlamını,
+// iş modelini, edge-case eşiklerini ve golden çerçevesini ortak kullanır (Çapraz; İP-21).
+pub mod esikler;
+pub mod golden;
+pub mod job;
+pub mod obslog;
+pub mod trace;
+
+pub use esikler::{DiskDurumu, Gericekilme};
+pub use job::{Ilerleme, IptalJetonu, IsKulpu};
+pub use obslog::{pii_temizle, LogKaydi, LogSeverity};
+pub use trace::TraceContext;
+
 // ─── Zaman ──────────────────────────────────────────────────────────────────
 
 /// Tüm kayıtlarda UTC kullanılır; yerel saate dönüştürme üst katmanlarda yapılır.

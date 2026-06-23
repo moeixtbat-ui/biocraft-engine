@@ -47,6 +47,10 @@ logs/
 # Test çıktıları / golden farklar (büyük dosyalar için)
 test_output/
 
+# İP-21: benchmark çalıştırma çıktısı (üretilen; baseline.json izlenir, current.json izlenmez)
+benchmarks/current.json
+bench-results.json
+
 # Geçici manuel test/smoke çıktıları (render host doğrulaması — stderr/stdout yönlendirmesi)
 smoke*.err
 smoke*.out

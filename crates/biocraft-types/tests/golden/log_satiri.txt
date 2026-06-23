@@ -1,0 +1,1 @@
+{"attributes":{"dosya":"ornek.vcf","kayit_sayisi":"3"},"body":"manifest doğrulandı","severity_number":13,"severity_text":"WARN","span_id":"2222222222222222","target":"biocraft_data::project","timestamp":"<ZAMAN>","trace_id":"11111111111111111111111111111111"}

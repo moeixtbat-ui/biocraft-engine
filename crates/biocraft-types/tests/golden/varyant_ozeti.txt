@@ -1,0 +1,8 @@
+# Varyant Özeti (sentetik)
+toplam	4
+pass	3
+--- kayıtlar ---
+chr1	10177	AC	A	PASS
+chr1	10352	T	TA	PASS
+chr7	117559590	ATCT	A	LowQual
+chrX	31224010	C	T	PASS

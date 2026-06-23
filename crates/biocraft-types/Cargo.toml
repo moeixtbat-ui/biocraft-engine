@@ -6,11 +6,15 @@ license.workspace = true
 publish = false  # iç workspace crate'i; crates.io'ya yayınlanmaz
 description = "BioCraft Engine — L0 temel tipler (MK-40: hiçbir biocraft-* crate'ine bağlı değil)"
 
-# MK-40: L0 — yalnızca harici crate'lere (serde/uuid/chrono) bağımlı; workspace crate'lerine sıfır bağımlılık.
+# MK-40: L0 — yalnızca harici crate'lere (serde/serde_json/uuid/chrono) bağımlı; workspace crate'lerine sıfır bağımlılık.
 [dependencies]
 serde  = { version = "1",   features = ["derive"] }
+# İP-21 (MK-57): yapılandırılmış (NDJSON) log kaydı — OTel-uyumlu satır üretimi (obslog.rs).
+serde_json = "1"
 uuid   = { version = "1",   features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
-[dev-dependencies]
-serde_json = "1"
+# İP-21 (MK-58): saf-Rust mikro-benchmark harness'i (criterion'suz; CI regresyon koruması).
+[[bench]]
+name = "cekirdek_bench"
+harness = false

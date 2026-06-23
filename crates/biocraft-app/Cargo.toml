@@ -23,6 +23,8 @@ biocraft-state  = { path = "../biocraft-state" }
 biocraft-data   = { path = "../biocraft-data" }
 # İP-01: açılış istemcisi (launcher) — son projeler, haber akışı, donanım ön-kontrol (L5→L4).
 biocraft-launcher = { path = "../biocraft-launcher" }
+# İP-21: gözlemlenebilirlik — L0 yapılandırılmış log kaydı + iz bağlamı + PII süzgeci (L5→L0).
+biocraft-types  = { path = "../biocraft-types" }
 
 # MK-01: pencere + egui↔wgpu köprüsü host katmanındadır (render egui'ye bağlı değil).
 winit      = { workspace = true }
@@ -31,7 +33,10 @@ egui       = { workspace = true }
 egui-winit = { workspace = true }
 egui-wgpu  = { workspace = true }
 log        = { workspace = true }
-env_logger = { workspace = true }
+# İP-21 (MK-57): yapılandırılmış log sink'i (NDJSON) + çökme raporu serileştirme + zaman damgası.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
 
 [features]
 # İP-04: CUDA iskeletini render üzerinden geçişli aç (varsayılan kapalı).

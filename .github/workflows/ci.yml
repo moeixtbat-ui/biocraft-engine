@@ -72,6 +72,34 @@ jobs:
       - name: Katman topoloji kontrolü
         run: python scripts/check-topology.py
 
+  # ─── Performans regresyon: saf-Rust benchmark + baseline karşılaştırma ───────
+  # İP-21 / MK-58: cekirdek_bench oranlarını benchmarks/baseline.json ile karşılaştırır;
+  # ciddi (algoritmik) gerileme → build durur.  Tek runner (tutarlı ölçüm); oran-tabanlı
+  # olduğu için makineden ~bağımsız.
+  bench:
+    name: Performans Regresyon (benchmark)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Rust araç zinciri (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo önbellek
+        uses: Swatinem/rust-cache@v2
+
+      # Bench stdout'u saf JSON üretir (stderr = derleme + insan-okur özet, log'da görünür).
+      - name: Benchmark çalıştır
+        run: cargo bench -p biocraft-types --bench cekirdek_bench --locked > benchmarks/current.json
+
+      - name: Regresyon denetimi
+        run: python scripts/check-bench.py benchmarks/current.json benchmarks/baseline.json
+
   # ─── cargo-deny: Lisans Politikası + Advisory Denetimi ───────────────────────
   # deny.toml → Hukuk-ve-Operasyon.md §1 (AGPLv3 çekirdekle uyumsuz lisanslar reddedilir)
   # MK-60: Bağımlılık güvenliği

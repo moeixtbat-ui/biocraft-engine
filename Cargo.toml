@@ -45,7 +45,8 @@ winit      = "0.30"
 # Yardımcılar
 pollster   = "0.3"
 log        = "0.4"
-env_logger = "0.11"
+# İP-21 (MK-57): loglama artık yapılandırılmış sink üzerinden (biocraft-app/src/observability/);
+# `log` cephesi korunur, `env_logger` İP-21'de kaldırıldı (NDJSON + iz/correlation_id + PII süzgeci).
 thiserror  = "1"
 # MK-52: token (tokens.json) ayrıştırma. İP-04: 3B uniform/vertex POD bayt dönüşümü.
 serde      = { version = "1", features = ["derive"] }

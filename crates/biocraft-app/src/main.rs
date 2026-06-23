@@ -65,14 +65,25 @@ use update::{
     KaynakYok,
 };
 
+// İP-21: gözlemlenebilirlik — yapılandırılmış log sink'i (NDJSON + iz/correlation_id) + çökme raporu.
+mod observability;
+
 fn main() {
-    // MK-08: Aşamalı başlatma. Kendi katmanlarımız "info"; wgpu/naga arka plan gürültüsü
-    // (Vulkan yükleyici mesajları vb.) "warn/error" ile susturulur (RUST_LOG ile değişir).
-    env_logger::Builder::from_env(
-        env_logger::Env::default()
-            .default_filter_or("info,wgpu_core=warn,wgpu_hal=error,naga=warn,wgpu=warn"),
-    )
-    .init();
+    // İP-21 (MK-57): yapılandırılmış log sink'i — konsol (insan-okur) + dosya (NDJSON, OTel).
+    //   • Seviye yönergesi `BIOCRAFT_LOG` ile geçersiz kılınabilir (geliştirici).
+    //   • MK-08: kendi katmanlarımız "info"; wgpu/naga arka plan gürültüsü "warn/error" ile kısılır.
+    //   • MK-45: her log satırı PII süzgecinden geçer; loglar `<veri>/logs/` altında.
+    let veri_dizini = durum_dizini()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(durum_dizini);
+    observability::init(observability::GozlemAyari {
+        log_dizini: Some(veri_dizini.join("logs")),
+        ..Default::default()
+    });
+    // İP-21 (MK-57): çökme kancası — anonim yerel dump; uzak rapor opt-in (varsayılan KAPALI).
+    observability::kur_panik_kancasi(veri_dizini.clone(), false);
+    log::info!("BioCraft Engine başlıyor (yapılandırılmış log + çökme raporu etkin).");
 
     // Basit CLI: `--cpu` → yazılım (CPU) backend'ini zorla (GPU'yu devre dışı bırakma testi).
     let tercih = if std::env::args().any(|a| a == "--cpu") {
@@ -780,12 +791,19 @@ impl ApplicationHandler for Uygulama {
         // aksi hâlde kaynak yapılandırılmadı (çevrimdışı/güvenli) → güncelleme sunulmaz.
         let mut guncelleme =
             GuncellemeDenetleyici::yeni(biocraft_data::update::SurumKanali::Kararli);
-        log::info!("{}", update::updater_ozeti());
-        if std::env::args().any(|a| a == "--update-demo") {
-            log::info!("--update-demo: sahte güncelleme kaynağı; onay yüzeyi canlı gösterilecek.");
-            guncelleme.kontrol_baslat(Box::new(DemoKaynak));
-        } else {
-            guncelleme.kontrol_baslat(Box::new(KaynakYok));
+        // İP-21 (MK-57): güncelleme denetimi bir DIŞ ÇAĞRIdır → kendi iz bağlamında çalışır;
+        // bu blok içindeki tüm log satırları aynı correlation_id'yi (W3C trace_id) taşır.
+        {
+            let (_uk, _) = observability::with_iz();
+            log::info!("{}", update::updater_ozeti());
+            if std::env::args().any(|a| a == "--update-demo") {
+                log::info!(
+                    "--update-demo: sahte güncelleme kaynağı; onay yüzeyi canlı gösterilecek."
+                );
+                guncelleme.kontrol_baslat(Box::new(DemoKaynak));
+            } else {
+                guncelleme.kontrol_baslat(Box::new(KaynakYok));
+            }
         }
 
         self.durum = Some(Sahne {

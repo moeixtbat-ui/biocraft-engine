@@ -1,0 +1,14 @@
+{
+  "_aciklama": "İP-21 (MK-58) performans regresyon temeli. Her değer ilgili ölçümün KALİBRASYON işine ORANIdır (mutlak ns DEĞİL) → farklı CI runner'larında da anlamlı kalır (makineden ~bağımsız). Tolerans KABA bir korumadır: yalnızca CİDDİ/algoritmik gerilemeleri (ör. O(n)→O(n^2)) yakalar, mikro-dalgalanmayı değil. Yeniden üretmek için: cargo bench -p biocraft-types --bench cekirdek_bench 2>/dev/null > benchmarks/current.json ; sonra benchmarks/baseline.json'daki 'olcumler' değerlerini güncelle.",
+  "tolerans": {
+    "uyari_kat": 2.0,
+    "hata_kat": 4.0
+  },
+  "olcumler": {
+    "iz_olustur": 0.85,
+    "traceparent": 18.0,
+    "log_json": 80.0,
+    "pii_temizle": 44.0,
+    "golden_normalize": 19.0
+  }
+}
