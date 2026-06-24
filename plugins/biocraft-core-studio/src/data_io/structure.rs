@@ -38,6 +38,9 @@ pub struct Atom {
     pub z: f32,
     /// Element sembolü (örn. "C", "N", "O").
     pub element: String,
+    /// B-faktör (sıcaklık faktörü; atomik hareketlilik/belirsizlik) — yoksa `0.0`.
+    /// 3B görüntüleyici (ÇE-07) B-faktöre göre renklendirmede kullanır.
+    pub b_faktor: f32,
     /// HETATM (heteroatom: ligand/su) mu?
     pub hetatm: bool,
 }
@@ -193,6 +196,8 @@ fn pdb_atom(satir: &str, hetatm: bool, yol: &Path) -> Result<Atom, ErrorReport> 
     let x = koord(30, 38)?;
     let y = koord(38, 46)?;
     let z = koord(46, 54)?;
+    // B-faktör (sütun 61-66; eksik/bozuksa 0.0 — savunmacı).
+    let b_faktor = alan(60, 66).parse::<f32>().unwrap_or(0.0);
     // Element sütunu (77-78) yoksa atom adının baş harfinden tahmin et.
     let element = {
         let e = alan(76, 78);
@@ -216,6 +221,7 @@ fn pdb_atom(satir: &str, hetatm: bool, yol: &Path) -> Result<Atom, ErrorReport> 
         y,
         z,
         element,
+        b_faktor,
         hetatm,
     })
 }
@@ -380,6 +386,9 @@ fn mmcif_atom(sutunlar: &[String], degerler: &[String]) -> Option<(i64, Atom)> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let element = al("type_symbol").unwrap_or("").to_string();
+    let b_faktor = al("B_iso_or_equiv")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
     let seri = al("id").and_then(|s| s.parse().ok()).unwrap_or(0);
     let model_no = al("pdbx_PDB_model_num")
         .and_then(|s| s.parse().ok())
@@ -397,6 +406,7 @@ fn mmcif_atom(sutunlar: &[String], degerler: &[String]) -> Option<(i64, Atom)> {
             y,
             z,
             element,
+            b_faktor,
             hetatm: grup == "HETATM",
         },
     ))
@@ -467,6 +477,7 @@ END
         assert_eq!(m.atomlar[0].zincir, "A");
         assert_eq!(m.atomlar[0].element, "N");
         assert!((m.atomlar[0].x - 11.104).abs() < 1e-3);
+        assert!((m.atomlar[0].b_faktor - 20.0).abs() < 1e-3);
         assert!(m.atomlar[2].hetatm);
         assert_eq!(y.zincirler(), vec!["A", "B"]);
         let _ = std::fs::remove_file(&p);
