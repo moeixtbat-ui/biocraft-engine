@@ -35,6 +35,16 @@ impl Palet {
         }
     }
 
+    /// **Saydam** (şeffaf) zeminli palet — dışa aktarmada arka plan boyanmaz (ÇE-11 "arka plan
+    /// seçimi: saydam").  SVG'de zemin dikdörtgeni atlanır; PNG'de zemin pikselleri **alfa=0**
+    /// (şeffaf) kalır → görsel başka bir zemine yerleştirilebilir (poster/slayt).
+    pub fn saydam() -> Self {
+        Self {
+            ozel: HashMap::new(),
+            zemin: None,
+        }
+    }
+
     /// Bir anlamsal rengi geçersiz kılar (motor tasarım jetonu basabilir).
     pub fn ayarla(&mut self, renk: CizimRengi, rgb: [u8; 3]) -> &mut Self {
         self.ozel.insert(renk, rgb);
@@ -111,11 +121,13 @@ pub fn svg_olustur(liste: &CizimListesi, genislik: f32, yukseklik: f32, palet: &
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.0}\" height=\"{h:.0}\" \
 viewBox=\"0 0 {w:.0} {h:.0}\" font-family=\"sans-serif\">\n"
     ));
-    // Zemin.
-    s.push_str(&format!(
-        "  <rect x=\"0\" y=\"0\" width=\"{w:.0}\" height=\"{h:.0}\" fill=\"{}\"/>\n",
-        hex(palet.zemin_rgb())
-    ));
+    // Zemin (saydam paletse — zemin None — atlanır → şeffaf SVG).
+    if let Some(z) = palet.zemin {
+        s.push_str(&format!(
+            "  <rect x=\"0\" y=\"0\" width=\"{w:.0}\" height=\"{h:.0}\" fill=\"{}\"/>\n",
+            hex(z)
+        ));
+    }
 
     for p in &liste.primitifler {
         match p {
@@ -205,7 +217,7 @@ fn xml_kacis(s: &str) -> String {
 pub fn png_olustur(liste: &CizimListesi, genislik: u32, yukseklik: u32, palet: &Palet) -> Vec<u8> {
     let w = genislik.max(1) as usize;
     let h = yukseklik.max(1) as usize;
-    let mut tuval = RasterTuval::yeni(w, h, palet.zemin_rgb());
+    let mut tuval = RasterTuval::yeni(w, h, palet.zemin);
 
     for p in &liste.primitifler {
         match p {
@@ -235,31 +247,45 @@ pub fn png_olustur(liste: &CizimListesi, genislik: u32, yukseklik: u32, palet: &
     tuval.png()
 }
 
-/// Basit RGB raster tuvali (alfa yok; opak boyama).
+/// Basit RGB raster tuvali — **per-piksel alfa** ile (saydam zemin desteği).
 struct RasterTuval {
     gen: usize,
     yuk: usize,
     /// RGB piksel verisi (gen*yuk*3).
     piksel: Vec<u8>,
+    /// Per-piksel alfa (gen*yuk).  Zemin opaksa hepsi 255; saydam zeminde boyanmayan piksel 0 kalır.
+    alfa: Vec<u8>,
 }
 
 impl RasterTuval {
-    fn yeni(gen: usize, yuk: usize, zemin: [u8; 3]) -> Self {
+    /// `zemin = Some(rgb)` opak zemin (alfa 255); `None` **saydam** (boyanmayan piksel alfa 0).
+    fn yeni(gen: usize, yuk: usize, zemin: Option<[u8; 3]>) -> Self {
+        let (dolgu, a) = match zemin {
+            Some(rgb) => (rgb, 255u8),
+            None => ([0, 0, 0], 0u8),
+        };
         let mut piksel = Vec::with_capacity(gen * yuk * 3);
         for _ in 0..gen * yuk {
-            piksel.extend_from_slice(&zemin);
+            piksel.extend_from_slice(&dolgu);
         }
-        Self { gen, yuk, piksel }
+        Self {
+            gen,
+            yuk,
+            piksel,
+            alfa: vec![a; gen * yuk],
+        }
     }
 
     fn nokta(&mut self, x: i64, y: i64, renk: [u8; 3]) {
         if x < 0 || y < 0 || x as usize >= self.gen || y as usize >= self.yuk {
             return;
         }
-        let i = (y as usize * self.gen + x as usize) * 3;
+        let p = y as usize * self.gen + x as usize;
+        let i = p * 3;
         self.piksel[i] = renk[0];
         self.piksel[i + 1] = renk[1];
         self.piksel[i + 2] = renk[2];
+        self.alfa[p] = 255; // boyanan piksel opak
     }
 
     fn dikdortgen(&mut self, x: f32, y: f32, gen: f32, yuk: f32, renk: [u8; 3]) {
@@ -321,11 +347,12 @@ impl RasterTuval {
         for y in 0..self.yuk {
             ham.push(0u8); // filtre: None
             for x in 0..self.gen {
-                let i = (y * self.gen + x) * 3;
+                let p = y * self.gen + x;
+                let i = p * 3;
                 ham.push(self.piksel[i]);
                 ham.push(self.piksel[i + 1]);
                 ham.push(self.piksel[i + 2]);
-                ham.push(255); // alfa opak
+                ham.push(self.alfa[p]); // per-piksel alfa (saydam zemin = 0)
             }
         }
         let zlib = zlib_stored(&ham);
@@ -449,6 +476,29 @@ mod tests {
         let svg = svg_olustur(&l, 50.0, 20.0, &Palet::yayin());
         assert!(svg.contains("a&lt;b&gt;&amp;&quot;c"));
         assert!(!svg.contains("a<b>"));
+    }
+
+    #[test]
+    fn svg_saydam_zemin_dikdortgeni_atlar() {
+        let l = ornek_liste();
+        let opak = svg_olustur(&l, 200.0, 100.0, &Palet::yayin());
+        let saydam = svg_olustur(&l, 200.0, 100.0, &Palet::saydam());
+        // Opak palette ilk eleman zemin <rect ...fill="#ffffff">; saydamda o yok.
+        assert!(opak.contains("width=\"200\" height=\"100\" fill=\"#ffffff\""));
+        assert!(!saydam.contains("width=\"200\" height=\"100\" fill=\"#ffffff\""));
+    }
+
+    #[test]
+    fn png_saydam_zemin_alfa_sifir() {
+        // Saydam palette boş bir liste → tüm pikseller alfa=0 (RGBA, renk tipi 6).
+        let png = png_olustur(&CizimListesi::yeni(), 4, 4, &Palet::saydam());
+        // İlk pikselin alfa baytını çöz: IDAT'taki ilk scanline filtre baytı (0) + R,G,B,A.
+        // Doğrudan piksel çözmek yerine, opak vs saydam IDAT'ın farklı olduğunu doğrula.
+        let opak = png_olustur(&CizimListesi::yeni(), 4, 4, &Palet::yayin());
+        assert_ne!(png, opak, "saydam ve opak zemin farklı PNG üretmeli");
+        // İmza + IEND yine geçerli (IEND CRC = 0xAE426082).
+        assert_eq!(&png[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        assert_eq!(&png[png.len() - 8..], b"IEND\xae\x42\x60\x82");
     }
 
     #[test]

@@ -1,0 +1,16 @@
+=== SVG ===
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100" font-family="sans-serif">
+  <rect x="0" y="0" width="200" height="100" fill="#ffffff"/>
+  <line x1="0.00" y1="10.00" x2="200.00" y2="10.00" stroke="#555555" stroke-width="1.00"/>
+  <rect x="40.00" y="30.00" width="80.00" height="14.00" fill="#3b6ea5"/>
+  <text x="40.00" y="48.00" fill="#222222" font-size="11.0" text-anchor="start" dominant-baseline="hanging">BRCA1</text>
+</svg>
+
+=== CSV ===
+CHROM,POS,GEN
+chr1,100,BRCA1
+chr17,7579472,TP53
+chr7,55191822,EGFR
+=== FASTA ===
+>seq1 test
+ACGTACGTAC
