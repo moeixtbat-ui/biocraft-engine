@@ -1,0 +1,3 @@
+KAYNAK | KİMLİK | TÜR | UZUNLUK | ORGANİZMA | BAŞLIK
+NCBI nucleotide | 7157 | Nükleotid | 2591 | Homo sapiens | Homo sapiens tumor protein p53 (TP53), mRNA
+NCBI nucleotide | 672 | Nükleotid | 7088 | Homo sapiens | Homo sapiens BRCA1 DNA repair associated (BRCA1), mRNA
