@@ -63,3 +63,9 @@ chrono     = { workspace = true }
 [dev-dependencies]
 biocraft-plugin-host = { path = "../../crates/biocraft-plugin-host" }
 toml = { workspace = true }
+
+# ─── ÇE-12 (Gün 43): performans regresyon benchmark'ı — saf-Rust harness (criterion YOK) ──
+# Çıktı şeması `crates/biocraft-types/benches/cekirdek_bench.rs` ile aynı (check-bench.py uyumlu).
+[[bench]]
+name = "cekirdek_eklenti_bench"
+harness = false

@@ -175,9 +175,13 @@ mod tests {
         assert!(akt
             .ui_turden(UiUzantiTuru::Panel)
             .any(|k| k.kimlik == PANEL_KIMLIK && k.baslik == AD));
-        // En az iki komut (palette) + bir ayar sayfası.
+        // En az iki komut (palette) + ayar sayfası/sayfaları.  Eklenti genel ayarı +
+        // ÇE-12 erişilebilirlik/performans ayarı (perf modülü, Gün 43) → en az 2 ayar.
         assert!(akt.ui_say(UiUzantiTuru::Komut) >= 2);
-        assert_eq!(akt.ui_say(UiUzantiTuru::Ayar), 1);
+        assert!(akt.ui_say(UiUzantiTuru::Ayar) >= 2);
+        assert!(akt
+            .ui_turden(UiUzantiTuru::Ayar)
+            .any(|k| k.kimlik == "biocraft.core.studio.ayarlar"));
     }
 
     #[test]

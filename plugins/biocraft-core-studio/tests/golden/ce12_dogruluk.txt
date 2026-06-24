@@ -1,0 +1,14 @@
+araç: bcftools
+ölçüt: QUAL>=50 && FILTER=PASS sayısı
+param filtre = QUAL>=50 && FILTER=PASS
+param koordinat = 1-tabanlı kapalı
+biocraft: 167
+referans: 167
+eşleşti: evet
+
+araç: samtools
+ölçüt: chr1:100-199 bölge uzunluğu (baz)
+param koordinat = 1-tabanlı kapalı
+biocraft: 100
+referans: 100
+eşleşti: evet

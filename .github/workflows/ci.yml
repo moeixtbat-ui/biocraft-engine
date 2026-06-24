@@ -100,6 +100,14 @@ jobs:
       - name: Regresyon denetimi
         run: python scripts/check-bench.py benchmarks/current.json benchmarks/baseline.json
 
+      # ÇE-12 (Gün 43): çekirdek eklenti sıcak yolları (tarayıcı LOD / varyant sorgu / CVD) —
+      # aynı saf-Rust harness + oran-tabanlı regresyon (LOD'un devre dışı kalması gibi gerilemeleri yakalar).
+      - name: Çekirdek eklenti benchmark çalıştır
+        run: cargo bench -p biocraft-core-studio --bench cekirdek_eklenti_bench --locked > benchmarks/current-core-studio.json
+
+      - name: Çekirdek eklenti regresyon denetimi
+        run: python scripts/check-bench.py benchmarks/current-core-studio.json benchmarks/baseline-core-studio.json
+
   # ─── cargo-deny: Lisans Politikası + Advisory Denetimi ───────────────────────
   # deny.toml → Hukuk-ve-Operasyon.md §1 (AGPLv3 çekirdekle uyumsuz lisanslar reddedilir)
   # MK-60: Bağımlılık güvenliği

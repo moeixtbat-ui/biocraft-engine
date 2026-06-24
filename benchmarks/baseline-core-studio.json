@@ -1,0 +1,12 @@
+{
+  "_aciklama": "ÇE-12 (Gün 43) — çekirdek eklenti (biocraft-core-studio) performans regresyon temeli. Her değer ilgili ölçümün KALİBRASYON işine ORANIdır (mutlak ns DEĞİL) → farklı CI runner'larında da anlamlı kalır (makineden ~bağımsız). Tolerans KABA bir korumadır: yalnızca CİDDİ/algoritmik gerilemeleri (ör. LOD'un devre dışı kalması, O(n)→O(n^2)) yakalar, mikro-dalgalanmayı değil. Yeniden üretmek için: cargo bench -p biocraft-core-studio --bench cekirdek_eklenti_bench 2>/dev/null > benchmarks/current-core-studio.json ; sonra buradaki 'olcumler' değerlerini güncelle.",
+  "tolerans": {
+    "uyari_kat": 2.5,
+    "hata_kat": 5.0
+  },
+  "olcumler": {
+    "tarayici_derle": 1771.0,
+    "varyant_sorgu": 21319.0,
+    "cvd_simule": 3.05
+  }
+}

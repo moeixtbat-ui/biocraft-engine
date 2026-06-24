@@ -49,7 +49,9 @@ test_output/
 
 # İP-21: benchmark çalıştırma çıktısı (üretilen; baseline.json izlenir, current.json izlenmez)
 benchmarks/current.json
+benchmarks/current-core-studio.json
 bench-results.json
+bench-core-studio.json
 
 # Geçici manuel test/smoke çıktıları (render host doğrulaması — stderr/stdout yönlendirmesi)
 smoke*.err
