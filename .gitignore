@@ -61,9 +61,16 @@ tdr_test.*
 *.bcext
 !assets/**/*.bcext
 
-# Sihirbazla/uygulamayla depo kökünde oluşturulan manuel TEST projeleri (repoya girmesin).
-# Bir BioCraft projesi = içinde biocraft.toml + .biocraft_meta/ olan klasördür; deneme amaçlı
-# oluşturulanları burada listele.  (İleride yeni test projeleri için aynı satırın altına ekle.)
+# Sihirbazla/uygulamayla depo KÖKÜNDE oluşturulan manuel TEST/deneme BioCraft projeleri
+# (repoya girmesin).  Bir BioCraft projesi = içinde biocraft.toml + .biocraft_meta/ + provenance/
+# olan klasördür.  Aşağıdaki desenler depo kökünde (TEK seviye) açılan bu tür projeleri rastgele
+# adlı olsalar bile OTOMATİK yok sayar → yeni deneme projeleri artık `git status`'u kirletmez.
+# Motorun GERÇEK kaynağı bundan ETKİLENMEZ: crates/plugins/packaging içindeki biocraft.toml'lar
+# 2 seviye derinde (ör. plugins/biocraft-core-studio/biocraft.toml) → tek-seviye `/*/` desenine
+# takılmaz.  (Daha önce commit'lenmiş hvfhgf/ sadsad/ sdas/ izlendiği için bunlar da etkilenmez.)
+/*/.biocraft_meta/
+/*/biocraft.toml
+/*/provenance/
 /sad/
 
 # Node (yardımcı araçlar için)
