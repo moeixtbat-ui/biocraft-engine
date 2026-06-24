@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 use noodles::bcf;
 use noodles::core::Region;
 use noodles::vcf;
+use noodles::vcf::variant::record::samples::series::value::genotype::Phasing;
+use noodles::vcf::variant::record::samples::series::Value as SeriesValue;
 use noodles::vcf::variant::record::{
     AlternateBases as _, Filters as _, Ids as _, Info as _, ReferenceBases as _, Samples as _,
 };
@@ -64,6 +66,9 @@ pub struct VaryantKaydi {
     pub ornek_sayisi: usize,
     /// FORMAT anahtarları (örnek sütun adları: GT/DP/…).
     pub format_anahtarlari: Vec<String>,
+    /// Her örnek için **GT** (genotip) metni (`0/1`, `1|1`, `./.` …) — örnek sırasıyla.
+    /// GT yoksa örnek başına ".".  Genotip ızgarası (ÇE-04) zigositeyi bundan çözer.
+    pub genotipler: Vec<String>,
 }
 
 /// INFO listesinde tutulacak en fazla alan sayısı (özet; bellek koruması).
@@ -73,6 +78,8 @@ const AZAMI_INFO: usize = 16;
 pub struct VaryantOkuyucu {
     ic: Ic,
     header: vcf::Header,
+    /// Açılan dosyanın yolu — tüm-dosya akışlı taraması ([`VaryantOkuyucu::tum_tara`]) için.
+    yol: PathBuf,
 }
 
 enum Ic {
@@ -113,6 +120,7 @@ impl VaryantOkuyucu {
                     Self {
                         ic: Ic::VcfIndeksli(r),
                         header,
+                        yol: yol.to_path_buf(),
                     },
                     basligi,
                 ))
@@ -127,6 +135,7 @@ impl VaryantOkuyucu {
                     Self {
                         ic: Ic::BcfIndeksli(r),
                         header,
+                        yol: yol.to_path_buf(),
                     },
                     basligi,
                 ))
@@ -143,6 +152,7 @@ impl VaryantOkuyucu {
                             yol: yol.to_path_buf(),
                         },
                         header,
+                        yol: yol.to_path_buf(),
                     },
                     basligi,
                 ))
@@ -159,6 +169,7 @@ impl VaryantOkuyucu {
                             yol: yol.to_path_buf(),
                         },
                         header,
+                        yol: yol.to_path_buf(),
                     },
                     basligi,
                 ))
@@ -212,6 +223,36 @@ impl VaryantOkuyucu {
                 r.read_header().map_err(|e| baslik_hatasi(yol, &e))?;
                 linear_bolge(r.records(), &self.header, &region, butce, max_kayit)
             }
+        }
+    }
+
+    /// **Tüm dosyayı** baştan **akışlı** (streaming) tarar — bölge belirtilmeden (ör. "tüm
+    /// kromozomlar" görünümü).  İndeks gerektirmez: dosya yeniden plain (indekssiz) okuyucuyla
+    /// açılıp kayıtlar tek tek okunur → **out-of-core** (MK-09; tüm dosya RAM'e alınmaz, yalnız
+    /// `max_kayit`'a + bütçeye kadar toplanır).  Çok büyük dosyada bölge sorgusu (indeksli) tercih
+    /// edilir; bu, "bütün varyantları gör" / küçük-orta dosya için pratik yoldur.
+    pub fn tum_tara(
+        &mut self,
+        butce: &BellekButcesi,
+        max_kayit: usize,
+    ) -> Result<Vec<VaryantKaydi>, ErrorReport> {
+        let format = formati_belirle(&self.yol)?;
+        match format {
+            VeriFormati::Vcf => {
+                let mut r = vcf::io::reader::Builder::default()
+                    .build_from_path(&self.yol)
+                    .map_err(|e| io_hatasi(&self.yol, "VCF okuma", &e))?;
+                r.read_header().map_err(|e| baslik_hatasi(&self.yol, &e))?;
+                topla(r.records(), &self.header, butce, max_kayit)
+            }
+            VeriFormati::Bcf => {
+                let mut r = bcf::io::Reader::new(
+                    File::open(&self.yol).map_err(|e| io_hatasi(&self.yol, "BCF okuma", &e))?,
+                );
+                r.read_header().map_err(|e| baslik_hatasi(&self.yol, &e))?;
+                topla(r.records(), &self.header, butce, max_kayit)
+            }
+            _ => unreachable!("ac() yalnız Vcf/Bcf açar"),
         }
     }
 }
@@ -357,6 +398,20 @@ fn kayit_to_varyant<R: VariantRecord>(
         v
     };
 
+    // Per-örnek GT (genotip) sütunu — varsa zigosite buradan çözülür (ÇE-04 genotip ızgarası).
+    let genotipler: Vec<String> = match samples.select(header, "GT") {
+        Some(seri) => {
+            let seri = seri.map_err(|e| kayit_okuma_hatasi(&e))?;
+            let mut v = Vec::with_capacity(ornek_sayisi);
+            for r in seri.iter(header) {
+                let deger = r.map_err(|e| kayit_okuma_hatasi(&e))?;
+                v.push(gt_deger_metni(deger)?);
+            }
+            v
+        }
+        None => Vec::new(),
+    };
+
     Ok(VaryantKaydi {
         kromozom,
         konum,
@@ -368,14 +423,49 @@ fn kayit_to_varyant<R: VariantRecord>(
         info,
         ornek_sayisi,
         format_anahtarlari,
+        genotipler,
     })
+}
+
+/// Tek bir örnek hücresinin (FORMAT/GT) değerini VCF metnine çevirir.  Genotip için alel
+/// indekslerini fazlama ayracıyla (`/` fazsız, `|` fazlı) birleştirir (`0/1`, `1|1`, `./.`).
+fn gt_deger_metni(deger: Option<SeriesValue>) -> Result<String, ErrorReport> {
+    use std::fmt::Write as _;
+    match deger {
+        None => Ok(".".to_string()),
+        Some(SeriesValue::Genotype(gt)) => {
+            let mut s = String::new();
+            for (i, allel) in gt.iter().enumerate() {
+                let (pos, faz) = allel.map_err(|e| kayit_okuma_hatasi(&e))?;
+                if i > 0 {
+                    s.push(match faz {
+                        Phasing::Phased => '|',
+                        Phasing::Unphased => '/',
+                    });
+                }
+                match pos {
+                    Some(n) => {
+                        let _ = write!(s, "{n}");
+                    }
+                    None => s.push('.'),
+                }
+            }
+            Ok(if s.is_empty() { ".".to_string() } else { s })
+        }
+        Some(SeriesValue::String(c)) => Ok(c.into_owned()),
+        Some(SeriesValue::Integer(n)) => Ok(n.to_string()),
+        Some(SeriesValue::Character(c)) => Ok(c.to_string()),
+        Some(SeriesValue::Float(f)) => Ok(f.to_string()),
+        Some(SeriesValue::Array(_)) => Ok(".".to_string()),
+    }
 }
 
 /// Bir varyant kaydının bellekteki kaba bayt tahmini (bütçe muhasebesi).
 fn tahmini_bayt(v: &VaryantKaydi) -> u64 {
     let alt: usize = v.alternatifler.iter().map(|a| a.len()).sum();
     let info: usize = v.info.iter().map(|(k, d)| k.len() + d.len()).sum();
-    (96 + v.kromozom.len() + v.referans.len() + alt + info) as u64
+    let gt: usize = v.genotipler.iter().map(|g| g.len() + 8).sum();
+    (96 + v.kromozom.len() + v.referans.len() + alt + info + gt) as u64
 }
 
 /// Bir dosyanın yanında tabix (`.tbi`) veya CSI (`.csi`) indeks var mı?
@@ -539,8 +629,23 @@ chr1\t900\trs2\tT\tG\t40\tPASS\tDP=10\tGT\t0/0
         assert!(kayitlar[0].info.iter().any(|(k, _)| k == "DP"));
         assert_eq!(kayitlar[0].ornek_sayisi, 1);
         assert_eq!(kayitlar[0].format_anahtarlari, vec!["GT"]);
+        // GT (genotip) sütunu örnek başına okunur (zigosite çözümü için).
+        assert_eq!(kayitlar[0].genotipler, vec!["0/1"]);
+        assert_eq!(kayitlar[1].genotipler, vec!["1/1"]);
         // Çoklu ALT.
         assert_eq!(kayitlar[1].alternatifler, vec!["C", "A"]);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn tum_tara_tum_kayitlari_dondurur() {
+        let p = yaz("f.vcf", VCF);
+        let (mut okuyucu, _) = VaryantOkuyucu::ac(&p).unwrap();
+        // Bölge belirtmeden tüm dosya akışlı taranır → 3 kayıt.
+        let hepsi = okuyucu.tum_tara(&BellekButcesi::sinirsiz(), 1000).unwrap();
+        assert_eq!(hepsi.len(), 3);
+        assert_eq!(hepsi[2].konum, 900);
+        assert_eq!(hepsi[2].genotipler, vec!["0/0"]);
         let _ = std::fs::remove_file(&p);
     }
 

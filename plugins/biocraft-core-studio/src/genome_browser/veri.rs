@@ -442,6 +442,7 @@ mod tests {
             info: vec![],
             ornek_sayisi: 1,
             format_anahtarlari: vec!["GT".into()],
+            genotipler: vec!["0/1".into()],
         };
         let p = VaryantParcasi::kayittan(&snv);
         assert_eq!(p.tur, VaryantTuru::Snv);
