@@ -74,6 +74,16 @@ impl HttpIstek {
         }
     }
 
+    /// Bir POST isteği başlatır (örn. RCSB Search API: JSON sorgu gövdesi).
+    pub fn post(url: impl Into<String>) -> Self {
+        Self {
+            yontem: HttpYontem::Post,
+            url: url.into(),
+            sorgu: Vec::new(),
+            govde: None,
+        }
+    }
+
     /// Bir querystring parametresi ekler (akıcı).
     pub fn param(mut self, ad: impl Into<String>, deger: impl Into<String>) -> Self {
         self.sorgu.push((ad.into(), deger.into()));

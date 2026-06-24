@@ -43,6 +43,47 @@ pub fn ncbi_lisans_atif() -> LisansAtif {
     }
 }
 
+/// RCSB PDB yapı verisi için lisans/atıf.  PDB ana arşiv verisi kamuya açıktır (CC0 1.0).
+pub fn pdb_lisans_atif() -> LisansAtif {
+    LisansAtif {
+        lisans: "CC0 1.0 (Public Domain Dedication)".to_string(),
+        atif: "Berman HM, et al. The Protein Data Bank. Nucleic Acids Res. 2000;28:235-242. RCSB PDB (rcsb.org)".to_string(),
+        url: Some("https://www.rcsb.org/pages/policies".to_string()),
+    }
+}
+
+/// UniProt protein verisi için lisans/atıf (CC BY 4.0).
+pub fn uniprot_lisans_atif() -> LisansAtif {
+    LisansAtif {
+        lisans: "CC BY 4.0".to_string(),
+        atif: "The UniProt Consortium. UniProt: the Universal Protein Knowledgebase. Nucleic Acids Res. 2023;51:D523-D531.".to_string(),
+        url: Some("https://www.uniprot.org/help/license".to_string()),
+    }
+}
+
+/// Ensembl gen/dizi/anotasyon verisi için lisans/atıf (Apache 2.0; veri kısıtlamasız).
+pub fn ensembl_lisans_atif() -> LisansAtif {
+    LisansAtif {
+        lisans: "Apache 2.0 (kod) / kısıtlamasız (veri)".to_string(),
+        atif: "Martin FJ, et al. Ensembl 2023. Nucleic Acids Res. 2023;51:D933-D941. EMBL-EBI."
+            .to_string(),
+        url: Some("https://www.ensembl.org/info/about/legal/disclaimer.html".to_string()),
+    }
+}
+
+/// UCSC Genom Tarayıcı verisi için lisans/atıf (akademik/kâr-amaçsız kullanım serbest; bazı
+/// derlemelerde kısıt olabilir → kullanıcı atıfta görür).
+pub fn ucsc_lisans_atif() -> LisansAtif {
+    LisansAtif {
+        lisans:
+            "UCSC Genome Browser — akademik/kâr-amaçsız kullanım serbest (bazı derlemeler kısıtlı)"
+                .to_string(),
+        atif: "Kent WJ, et al. The Human Genome Browser at UCSC. Genome Res. 2002;12:996-1006."
+            .to_string(),
+        url: Some("https://genome.ucsc.edu/conditions.html".to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,25 +9,30 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use biocraft_sdk::biocraft_types::ErrorReport;
 
 use super::privacy::GizlilikKapisi;
+use super::ratelimit::KaynakHizYoneticisi;
 use super::transport::HttpUlastirici;
 use crate::data_io::{HttpYapilandirma, Provenans};
 
 /// Bir veritabanı kaydının türü (sonuç rozeti + tek-tık eylem hedefi).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum KayitTuru {
     /// Nükleotid dizisi (DNA/RNA) — NCBI nucleotide, Ensembl…
     Nukleotid,
     /// Protein dizisi — NCBI protein, UniProt…
     Protein,
-    /// Gen kaydı (lokus/öznitelik) — NCBI gene…
+    /// Gen kaydı (lokus/öznitelik) — NCBI gene, Ensembl…
     Gen,
     /// 3B makromolekül yapısı (PDB/mmCIF) — RCSB PDB → ÇE-07 görüntüleyici.
     Yapi,
     /// Dizi hizalaması (BLAST sonucu).
     Hizalama,
+    /// Genom izi / track (UCSC) — bir bölgeyle genom tarayıcıda (ÇE-02) gösterilir.
+    Iz,
     /// Diğer/sınıflanmamış.
     Diger,
 }
@@ -41,6 +46,7 @@ impl KayitTuru {
             KayitTuru::Gen => "Gen",
             KayitTuru::Yapi => "3B Yapı",
             KayitTuru::Hizalama => "Hizalama",
+            KayitTuru::Iz => "Genom İzi",
             KayitTuru::Diger => "Diğer",
         }
     }
@@ -51,8 +57,38 @@ impl KayitTuru {
     }
 }
 
+/// Bir sonucun genomik konumu (çapraz bağlantı: sonuç → genom tarayıcı ÇE-02 "bölgeye git").
+///
+/// `data_io`/`genome_browser`'ın `GenomBolge`'siyle aynı **1-tabanlı kapsayıcı** anlama sahiptir;
+/// db_search çekirdek tiplere bağlanmadan (MK-17) hafif bir taşıyıcı tutar (host eşler).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Konum {
+    /// Kromozom/kontig adı (örn. "17", "chr17").
+    pub kromozom: String,
+    /// 1-tabanlı başlangıç (kapsayıcı).
+    pub baslangic: u64,
+    /// 1-tabanlı bitiş (kapsayıcı).
+    pub bitis: u64,
+}
+
+impl Konum {
+    /// Yeni konum (1-tabanlı kapsayıcı).
+    pub fn yeni(kromozom: impl Into<String>, baslangic: u64, bitis: u64) -> Self {
+        Self {
+            kromozom: kromozom.into(),
+            baslangic,
+            bitis,
+        }
+    }
+
+    /// `kromozom:başlangıç-bitiş` biçimi (genom tarayıcıya "bölgeye git" girdisi).
+    pub fn bolge_metni(&self) -> String {
+        format!("{}:{}-{}", self.kromozom, self.baslangic, self.bitis)
+    }
+}
+
 /// Skorlu (BLAST gibi) sonuçlarda hizalama kalitesi — sıralama/filtreleme için.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SonucSkoru {
     /// Bit skoru (yüksek = iyi).
     pub bit_skoru: f64,
@@ -63,7 +99,7 @@ pub struct SonucSkoru {
 }
 
 /// Birleşik sonuç satırı (kaynak rozetli; tüm konektörler aynı şemayı doldurur).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AramaSonucu {
     /// Kaynak rozeti (örn. "NCBI nucleotide", "BLAST", "PDB").
     pub kaynak: String,
@@ -72,15 +108,21 @@ pub struct AramaSonucu {
     /// Başlık (tanım satırı).
     pub baslik: String,
     /// Organizma (varsa).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub organizma: Option<String>,
     /// Dizi uzunluğu (bp/aa; varsa).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uzunluk: Option<u64>,
     /// Kayıt türü.
     pub tur: KayitTuru,
     /// Kısa açıklama/özet (önizleme).
     pub aciklama: String,
     /// Skor (BLAST gibi; aksi hâlde `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skor: Option<SonucSkoru>,
+    /// Genomik konum (Ensembl/UCSC gibi konumlu sonuçlarda) → genom tarayıcı çapraz bağlantısı.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub konum: Option<Konum>,
 }
 
 impl AramaSonucu {
@@ -100,6 +142,7 @@ impl AramaSonucu {
             tur,
             aciklama: String::new(),
             skor: None,
+            konum: None,
         }
     }
 
@@ -121,6 +164,11 @@ impl AramaSonucu {
     /// Skor ekler.
     pub fn with_skor(mut self, s: SonucSkoru) -> Self {
         self.skor = Some(s);
+        self
+    }
+    /// Genomik konum ekler (çapraz bağlantı: genom tarayıcıda "bölgeye git").
+    pub fn with_konum(mut self, k: Konum) -> Self {
+        self.konum = Some(k);
         self
     }
 }
@@ -178,7 +226,7 @@ impl Default for Sayfalama {
 }
 
 /// Bir sonuç sayfasının bilgisi (toplam + konum).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SayfaBilgisi {
     /// Eşleşen toplam kayıt sayısı (sayfalamadan bağımsız).
     pub toplam: u64,
@@ -200,7 +248,7 @@ impl SayfaBilgisi {
 }
 
 /// Bir aramanın sonucu (satırlar + sayfa bilgisi).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SonucListesi {
     /// Bu sayfadaki sonuç satırları.
     pub sonuclar: Vec<AramaSonucu>,
@@ -235,8 +283,11 @@ pub struct AramaBaglami<'a> {
     pub yapi: HttpYapilandirma,
     /// Opsiyonel API anahtarı (NCBI: hız limiti yükselir; kimlik İP-09 ile şifreli saklanır — Gün 41).
     pub api_anahtari: Option<String>,
-    /// Opsiyonel istek hız sınırlayıcı.
+    /// Opsiyonel **tek** istek hız sınırlayıcı (eski; tüm konektörler aynı kovayı paylaşır).
     pub hiz: Option<&'a HizSinirlayici>,
+    /// Opsiyonel **kaynak-başına** hız yöneticisi (Gün 41): her kaynağın kendi kovası + kuyruğu
+    /// (ileri-uyum; varsa [`hiz_bekle_kaynak`](Self::hiz_bekle_kaynak) bunu kullanır).
+    pub hiz_yoneticisi: Option<&'a KaynakHizYoneticisi>,
 }
 
 impl<'a> AramaBaglami<'a> {
@@ -248,6 +299,7 @@ impl<'a> AramaBaglami<'a> {
             yapi: HttpYapilandirma::default(),
             api_anahtari: None,
             hiz: None,
+            hiz_yoneticisi: None,
         }
     }
 
@@ -257,16 +309,33 @@ impl<'a> AramaBaglami<'a> {
         self
     }
 
-    /// Hız sınırlayıcı ekler (akıcı).
+    /// Tek hız sınırlayıcı ekler (akıcı; eski/ortak kova).
     pub fn with_hiz(mut self, hiz: &'a HizSinirlayici) -> Self {
         self.hiz = Some(hiz);
         self
     }
 
-    /// Bir dış istek yollamadan önce çağrılır: hız sınırı varsa bekletir (rate-limit koruması).
+    /// Kaynak-başına hız yöneticisi ekler (akıcı; Gün 41).
+    pub fn with_hiz_yoneticisi(mut self, yoneticisi: &'a KaynakHizYoneticisi) -> Self {
+        self.hiz_yoneticisi = Some(yoneticisi);
+        self
+    }
+
+    /// Bir dış istek yollamadan önce çağrılır: tek (ortak) hız sınırı varsa bekletir.
     pub fn hiz_bekle(&self) {
         if let Some(h) = self.hiz {
             h.bekle();
+        }
+    }
+
+    /// Bir dış istek yollamadan önce **kaynağa özgü** hız sınırını uygular (Gün 41).
+    /// Kaynak-başına yönetici varsa onu (her kaynağın kendi kovası) kullanır; yoksa ortak
+    /// sınırlayıcıya ([`hiz_bekle`](Self::hiz_bekle)) düşer (geriye-uyum).
+    pub fn hiz_bekle_kaynak(&self, kaynak: &str) {
+        if let Some(y) = self.hiz_yoneticisi {
+            y.bekle(kaynak);
+        } else {
+            self.hiz_bekle();
         }
     }
 }
@@ -387,6 +456,35 @@ mod tests {
     fn kayit_turu_yapiya_bakilabilir() {
         assert!(KayitTuru::Yapi.yapiya_bakilabilir_mi());
         assert!(!KayitTuru::Nukleotid.yapiya_bakilabilir_mi());
+        assert!(!KayitTuru::Iz.yapiya_bakilabilir_mi());
+        assert_eq!(KayitTuru::Iz.etiket(), "Genom İzi");
+    }
+
+    #[test]
+    fn konum_bolge_metni_ve_serde() {
+        let k = Konum::yeni("17", 7_668_421, 7_687_550);
+        assert_eq!(k.bolge_metni(), "17:7668421-7687550");
+        // AramaSonucu konumuyla serde round-trip (önbellek için).
+        let s = AramaSonucu::yeni("Ensembl", "ENSG00000141510", "TP53", KayitTuru::Gen)
+            .with_konum(k.clone());
+        let js = serde_json::to_string(&s).unwrap();
+        let geri: AramaSonucu = serde_json::from_str(&js).unwrap();
+        assert_eq!(geri.konum, Some(k));
+    }
+
+    #[test]
+    fn sonuc_listesi_serde_round_trip() {
+        let liste = SonucListesi {
+            sonuclar: vec![AramaSonucu::yeni("PDB", "1TUP", "p53", KayitTuru::Yapi)],
+            sayfa: SayfaBilgisi {
+                toplam: 1,
+                ofset: 0,
+                limit: 20,
+            },
+        };
+        let js = serde_json::to_string(&liste).unwrap();
+        let geri: SonucListesi = serde_json::from_str(&js).unwrap();
+        assert_eq!(geri, liste);
     }
 
     #[test]
